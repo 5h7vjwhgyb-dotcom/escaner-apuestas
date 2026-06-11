@@ -4,9 +4,11 @@ from google import genai
 from google.genai import types
 from datetime import datetime
 import math
+import collections # New import for date grouping
 
 # ═══════════════════════════════════════════════
-# BANDERAS
+# BANDERAS (Copied from original for simplicity,
+# but a more complete list should be used or fetched)
 # ═══════════════════════════════════════════════
 BANDERAS = {
     "Mexico":"🇲🇽","South Africa":"🇿🇦","South Korea":"🇰🇷",
@@ -106,148 +108,63 @@ def mejor_apuesta(h2h, probs, t_over, t_under):
         if h2h[k]: cands.append({"label":lbl,"odds":h2h[k],"prob":probs[k]})
     return max(cands, key=lambda x: x["prob"]) if cands else None
 
-def fmt_fecha(iso):
+def fmt_fecha(iso, simple=False):
     try:
         dt = datetime.fromisoformat(iso.replace("Z","+00:00"))
+        if simple: return dt.strftime('%Y-%m-%d')
         dias = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
         meses = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
         return f"{dias[dt.weekday()]} {dt.day} {meses[dt.month]} · {dt.strftime('%H:%M')} UTC"
     except: return "Fecha no disponible"
 
-def render_card(partido, idx=1):
+def render_simplified_card(partido, idx=1):
     home  = partido.get("home_team","Local")
     away  = partido.get("away_team","Visita")
     fecha = fmt_fecha(partido.get("commence_time",""))
-    liga_title = partido.get("sport_title","Fútbol")
-
     h2h, t_over, t_under = extraer_odds(partido)
     probs = calcular_probs(h2h)
-    apuesta = mejor_apuesta(h2h, probs, t_over, t_under)
-
-    h_odds = h2h["home"] or "—"
-    d_odds = h2h["draw"] or "—"
-    a_odds = h2h["away"] or "—"
-
-    # ── Over/Under rows ──────────────────────────────
-    ou_rows = ""
-    for pt in sorted(t_over.keys()):
-        if pt in t_under:
-            total = (1/t_over[pt]) + (1/t_under[pt])
-            op = round((1/t_over[pt])/total*100)
-            up = round((1/t_under[pt])/total*100)
-            ou_rows += f"""
-            <div style="display:flex;gap:6px;margin-bottom:5px;">
-              <div style="flex:1;background:#0d1117;border-radius:7px;padding:7px 4px;text-align:center;">
-                <div style="color:#22c55e;font-size:10px;font-weight:700;">O {pt}</div>
-                <div style="color:#e1e1e1;font-size:16px;font-weight:700;">{t_over[pt]}</div>
-                <div style="color:#6b7280;font-size:10px;">{op}%</div>
-              </div>
-              <div style="flex:1;background:#0d1117;border-radius:7px;padding:7px 4px;text-align:center;">
-                <div style="color:#ef4444;font-size:10px;font-weight:700;">U {pt}</div>
-                <div style="color:#e1e1e1;font-size:16px;font-weight:700;">{t_under[pt]}</div>
-                <div style="color:#6b7280;font-size:10px;">{up}%</div>
-              </div>
-            </div>"""
-
-    ou_section = f"""
-    <div style="background:#1a2235;border-radius:10px;padding:11px;margin-bottom:12px;">
-      <div style="color:#6b7280;font-size:10px;letter-spacing:1.2px;font-weight:700;margin-bottom:7px;">OVER / UNDER</div>
-      {ou_rows or '<span style="color:#6b7280;font-size:12px;">No disponible en esta liga</span>'}
-    </div>""" if t_over else ""
-
-    # ── Apuesta sugerida ─────────────────────────────
-    bet_html = ""
-    if apuesta:
-        bet_html = f"""
-    <div style="background:rgba(0,230,118,0.07);border:1px solid #00e676;border-radius:10px;
-                padding:11px 13px;display:flex;justify-content:space-between;
-                align-items:center;margin-bottom:13px;">
-      <div>
-        <div style="color:#6b7280;font-size:10px;letter-spacing:1px;font-weight:700;">🛡️ APUESTA SUGERIDA</div>
-        <div style="color:#00e676;font-size:14px;font-weight:700;margin-top:2px;">{apuesta['label']}</div>
-      </div>
-      <div style="text-align:right;">
-        <div style="color:#6b7280;font-size:10px;">Prob: {apuesta['prob']}%</div>
-        <div style="color:#00e676;font-size:18px;font-weight:900;">@{apuesta['odds']}</div>
-      </div>
-    </div>"""
-
-    # ── Prob bar ─────────────────────────────────────
+    
+    # ── Probability bar ─────────────────────────────────────
     hp, dp, ap = probs["home"], probs["draw"], probs["away"]
 
     return f"""
-<div style="background:#161c2b;border-radius:18px;padding:17px;border:1px solid #2a3349;
-            margin-bottom:18px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-
-  <!-- Header -->
+<div style="background:#161c2b;border-radius:12px;padding:12px;border:1px solid #2a3349;
+            margin-bottom:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-    <span style="color:#8b949e;font-size:12px;">📅 {fecha}</span>
-    <span style="background:#2d3748;color:#e1e1e1;font-size:10px;padding:2px 9px;border-radius:20px;font-weight:700;">M {idx}</span>
+    <span style="color:#8b949e;font-size:11px;">📅 {fecha}</span>
+    <span style="background:#2d3748;color:#e1e1e1;font-size:9px;padding:2px 7px;border-radius:20px;font-weight:700;">M {idx}</span>
   </div>
-  <div style="color:#6b7280;font-size:11px;margin-bottom:14px;">📍 {liga_title}</div>
 
-  <!-- Teams -->
-  <div style="display:flex;align-items:center;margin-bottom:15px;">
+  <div style="display:flex;align-items:center;margin-bottom:10px;">
     <div style="flex:2;text-align:center;">
-      <div style="font-size:44px;line-height:1.1;">{flag(home)}</div>
-      <div style="color:#e1e1e1;font-weight:700;font-size:14px;margin-top:5px;">{home}</div>
-      <div style="color:#f59e0b;font-size:12px;">{estrellas(hp)}</div>
+      <div style="font-size:32px;line-height:1.1;">{flag(home)}</div>
+      <div style="color:#e1e1e1;font-weight:700;font-size:12px;margin-top:4px;">{home}</div>
+      <div style="color:#f59e0b;font-size:10px;">{estrellas(hp)}</div>
     </div>
     <div style="flex:1;text-align:center;">
-      <div style="color:#6b7280;font-size:20px;font-weight:900;letter-spacing:3px;">— : —</div>
-      <div style="background:#2d3748;color:#8b949e;font-size:9px;padding:3px 8px;
-                  border-radius:10px;margin-top:6px;display:inline-block;letter-spacing:.5px;">Cuotas 1X2</div>
+      <div style="color:#6b7280;font-size:16px;font-weight:900;">— : —</div>
     </div>
     <div style="flex:2;text-align:center;">
-      <div style="font-size:44px;line-height:1.1;">{flag(away)}</div>
-      <div style="color:#e1e1e1;font-weight:700;font-size:14px;margin-top:5px;">{away}</div>
-      <div style="color:#f59e0b;font-size:12px;">{estrellas(ap)}</div>
+      <div style="font-size:32px;line-height:1.1;">{flag(away)}</div>
+      <div style="color:#e1e1e1;font-weight:700;font-size:12px;margin-top:4px;">{away}</div>
+      <div style="color:#f59e0b;font-size:10px;">{estrellas(ap)}</div>
     </div>
   </div>
 
-  <!-- Odds boxes -->
-  <div style="display:flex;gap:6px;margin-bottom:13px;">
-    <div style="flex:1;background:#1a2235;border-radius:10px;padding:10px 4px;text-align:center;">
-      <div style="color:#6b7280;font-size:9px;letter-spacing:1px;font-weight:700;">LOCAL [1]</div>
-      <div style="color:#e1e1e1;font-size:22px;font-weight:700;line-height:1.2;">{h_odds}</div>
-      <div style="color:#6b7280;font-size:10px;">Prob: {hp}%</div>
-    </div>
-    <div style="flex:1;background:#1a2235;border-radius:10px;padding:10px 4px;text-align:center;">
-      <div style="color:#6b7280;font-size:9px;letter-spacing:1px;font-weight:700;">EMPATE [X]</div>
-      <div style="color:#e1e1e1;font-size:22px;font-weight:700;line-height:1.2;">{d_odds}</div>
-      <div style="color:#6b7280;font-size:10px;">Prob: {dp}%</div>
-    </div>
-    <div style="flex:1;background:#1a2235;border-radius:10px;padding:10px 4px;text-align:center;">
-      <div style="color:#6b7280;font-size:9px;letter-spacing:1px;font-weight:700;">VISITA [2]</div>
-      <div style="color:#e1e1e1;font-size:22px;font-weight:700;line-height:1.2;">{a_odds}</div>
-      <div style="color:#6b7280;font-size:10px;">Prob: {ap}%</div>
-    </div>
-  </div>
-
-  {ou_section}
-  {bet_html}
-
-  <!-- Probability bar -->
-  <div>
-    <div style="color:#6b7280;font-size:10px;letter-spacing:1.2px;font-weight:700;margin-bottom:6px;">📈 PROBABILIDAD DE VICTORIA:</div>
-    <div style="display:flex;border-radius:8px;overflow:hidden;height:28px;">
-      <div style="background:#22c55e;width:{hp}%;display:flex;align-items:center;
-                  justify-content:center;color:white;font-size:12px;font-weight:700;min-width:28px;">{hp}%</div>
-      <div style="background:#4b5563;width:{dp}%;display:flex;align-items:center;
-                  justify-content:center;color:#ddd;font-size:10px;min-width:28px;">EMP</div>
-      <div style="background:#ef4444;width:{ap}%;display:flex;align-items:center;
-                  justify-content:center;color:white;font-size:12px;font-weight:700;min-width:28px;">{ap}%</div>
-    </div>
-    <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:#6b7280;">
-      <span>{home}</span><span>EMPATE</span><span>{away}</span>
-    </div>
+  <div style="display:flex;border-radius:6px;overflow:hidden;height:18px;">
+    <div style="background:#22c55e;width:{hp}%;display:flex;align-items:center;
+                justify-content:center;color:white;font-size:10px;font-weight:700;min-width:18px;">{hp}%</div>
+    <div style="background:#4b5563;width:{dp}%;display:flex;align-items:center;
+                justify-content:center;color:#ddd;font-size:8px;min-width:18px;">EMP</div>
+    <div style="background:#ef4444;width:{ap}%;display:flex;align-items:center;
+                justify-content:center;color:white;font-size:10px;font-weight:700;min-width:18px;">{ap}%</div>
   </div>
 </div>"""
 
 # ═══════════════════════════════════════════════════════════════
 # APP
 # ═══════════════════════════════════════════════════════════════
-st.set_page_config(page_title="BET⚡MUNDIAL", layout="centered",
+st.set_page_config(page_title="BET⚡COMBINADAS", layout="centered",
                    initial_sidebar_state="collapsed")
 
 st.markdown("""
@@ -306,11 +223,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─── HEADER ──────────────────────────────────────────────────────
-api_gemini_ss = st.session_state.get("_gem","")
-api_odds_ss   = st.session_state.get("_odd","")
-online = bool(api_gemini_ss and api_odds_ss)
+api_gemini = st.secrets.get("gemini", {}).get("api_key", "")
+api_odds = st.secrets.get("odds", {}).get("api_key", "")
+online = bool(api_gemini and api_odds)
 dot    = "🟢" if online else "🔴"
-badge  = "EN LÍNEA" if online else "SIN CONEXIÓN"
+badge  = "EN LÍNEA (Secrets)" if online else "SIN CONEXIÓN (Revisa secrets.toml)"
 bcol   = "#22c55e" if online else "#ef4444"
 
 st.markdown(f"""
@@ -318,137 +235,171 @@ st.markdown(f"""
             background:#161c2b;padding:13px 16px;border-radius:14px;
             margin-bottom:16px;border:1px solid #2d3748;">
   <span style="font-size:20px;font-weight:900;color:#e1e1e1;letter-spacing:.5px;">
-    BET<span style="color:#00e676;">⚡</span>MUNDIAL
+    BET<span style="color:#00e676;">⚡</span>COMBINADAS
   </span>
   <span style="border:1px solid {bcol};color:{bcol};font-size:10px;font-weight:700;
                padding:4px 10px;border-radius:20px;letter-spacing:.5px;">{dot} {badge}</span>
 </div>
 """, unsafe_allow_html=True)
 
-# ─── CONFIGURACIÓN ───────────────────────────────────────────────
-with st.expander("⚙️  Configuración — Claves API", expanded=not online):
-    c1, c2 = st.columns(2)
-    with c1:
-        api_gemini = st.text_input("Gemini API Key", type="password",
-                                   help="aistudio.google.com", key="_gem")
-    with c2:
-        api_odds = st.text_input("Odds API Key", type="password",
-                                 help="the-odds-api.com", key="_odd")
-    st.caption("💡 Tier gratuito Odds API: 500 peticiones/mes · Gemini 3.5 Flash")
+# ─── CONFIGURACIÓN EXPANDER (Hidden Keys) ──────────────────────
+# Expander is kept but empty or with status for consistency
+with st.expander("⚙️  Configuración — Estado API", expanded=False):
+    if online:
+        st.success("✅ Las claves API se han cargado desde los secretos.")
+        st.caption("💡 Tier gratuito Odds API y Gemini Flash configurados.")
+    else:
+        st.warning("❌ Faltan claves API. Crea un archivo `.streamlit/secrets.toml` con las claves.")
+        st.code("""
+[gemini]
+api_key = "TU_GEMINI_KEY"
 
-# ─── LIGA ────────────────────────────────────────────────────────
-liga_label = st.selectbox("🏆 Liga", list(LIGAS.keys()), index=0)
-liga = LIGAS[liga_label]
+[odds]
+api_key = "TU_ODDSAPI_KEY"
+""")
+
+# ─── AUTO-LOAD PARTIDOS (Próximos 6) ───────────────────────────
+upcoming_matches = []
+upcoming_matches_dict = {}
 
 if api_odds:
-    if st.button("🔍 Ver ligas con partidos activos ahora"):
-        with st.spinner("Consultando..."):
-            try:
-                r = requests.get(
-                    f"https://api.the-odds-api.com/v4/sports/?apiKey={api_odds}&all=false",
-                    timeout=10).json()
-                futbol = [s for s in r if isinstance(r,list) and
-                          s.get("group","").lower()=="soccer"] if isinstance(r,list) else []
-                if futbol:
-                    st.success("✅ Ligas activas:")
-                    for s in futbol:
-                        st.code(f"{s['title']}  →  {s['key']}")
-                else:
-                    st.info("No se encontraron ligas activas o clave inválida.")
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-st.markdown("---")
-
-# ─── CARGA DE PARTIDOS ───────────────────────────────────────────
-partido = None
-
-if not api_odds:
-    st.info("🔑 Ingresa tu Odds API Key en Configuración para ver partidos.")
-else:
-    url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
+    # Use a specific active league like MLS for "upcoming" for now
+    league_key = "soccer_usa_mls" 
+    url = (f"https://api.the-odds-api.com/v4/sports/{league_key}/odds/"
            f"?apiKey={api_odds}&regions=eu&markets=h2h,totals")
-    try:
-        resp_raw = requests.get(url, timeout=10)
-        restantes = resp_raw.headers.get("x-requests-remaining","?")
-        resp = resp_raw.json()
+    
+    with st.spinner(f"🚀 Cargando próximos partidos de MLS..."):
+        try:
+            resp_raw = requests.get(url, timeout=10)
+            resp = resp_raw.json()
 
-        if isinstance(resp, dict) and resp.get("message"):
-            st.error(f"❌ Odds API: {resp['message']}")
-        elif isinstance(resp, list) and len(resp) > 0:
-            lista = {
-                f"{p.get('home_team','Local')} vs {p.get('away_team','Visita')}": p
-                for p in resp
-            }
-            partido_nombre = st.selectbox("🎯 Partido", list(lista.keys()))
-            partido = lista[partido_nombre]
+            if isinstance(resp, list) and len(resp) > 0:
+                # Sort by date
+                sorted_resp = sorted(resp, key=lambda x: x.get('commence_time', ''))
+                
+                upcoming_matches = sorted_resp[:6]
+                for p in upcoming_matches:
+                    name = f"{fmt_fecha(p['commence_time'], simple=True)}: {p['home_team']} vs {p['away_team']}"
+                    upcoming_matches_dict[name] = p
+            elif isinstance(resp, dict) and resp.get("message"):
+                 st.error(f"❌ Odds API Error: {resp['message']}")
+            else:
+                 st.warning("⚠️ No se encontraron próximos partidos.")
+        except Exception as e:
+            st.error(f"❌ Error al cargar partidos: {e}")
 
-            # Render beautiful match card
-            idx = list(lista.keys()).index(partido_nombre) + 1
-            st.markdown(render_card(partido, idx), unsafe_allow_html=True)
-
-            st.markdown(
-                f'<div style="color:#6b7280;font-size:10px;text-align:right;'
-                f'margin-top:-10px;margin-bottom:10px;">'
-                f'📊 Peticiones restantes: <strong style="color:#e1e1e1;">{restantes}</strong>/500</div>',
-                unsafe_allow_html=True
-            )
-        else:
-            st.warning("⚠️ No hay partidos disponibles. Prueba con **🌍 Mundial 2026** o **🇺🇸 MLS**.")
-
-    except requests.exceptions.Timeout:
-        st.error("❌ Tiempo de espera agotado. Inténtalo de nuevo.")
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
-
-# ─── CONTEXTO + ANÁLISIS ─────────────────────────────────────────
 st.markdown("---")
-contexto = st.text_area(
-    "📋 Contexto adicional",
-    placeholder="Ej: Delantero titular lesionado · Lluvia prevista · Local invicto en casa"
+
+# ─── SELECCIÓN DE PARTIDOS ─────────────────────────────────────
+st.subheader("🎯 Selecciona de los próximos 6 partidos")
+selected_match_names = st.multiselect(
+    "Selecciona hasta 6 partidos",
+    options=list(upcoming_matches_dict.keys()),
+    default=None,
+    help="Selecciona los partidos que quieres analizar para generar las apuestas combinadas."
 )
 
-if st.button("🚀 Analizar 15 Mercados con IA"):
+selected_matches = [upcoming_matches_dict[name] for name in selected_match_names]
+
+# Display simplified cards for selected matches
+if selected_matches:
+    st.markdown("### 👀 Vista previa de selección")
+    for i, p in enumerate(selected_matches):
+        st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
+else:
+    st.info("Ingresa los secretos para ver los próximos partidos.")
+
+# ─── CONTEXTO + ANÁLISIS COMBINADO ──────────────────────────────
+st.markdown("---")
+contexto = st.text_area(
+    "📋 Contexto adicional (opcional)",
+    placeholder="Ej: Local con racha imparable · Visita con baja de su goleador principal"
+)
+
+if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
     if not api_gemini:
         st.error("❌ Falta la Gemini API Key.")
-    elif not partido:
-        st.error("❌ Selecciona un partido primero.")
+    elif not selected_matches:
+        st.error("❌ Selecciona al menos un partido primero.")
     else:
+        # Pre-process match data for prompt
+        formatted_matches = []
+        for p in selected_matches:
+            h2h, t_over, t_under = extraer_odds(p)
+            probs = calcular_probs(h2h)
+            best = mejor_apuesta(h2h, probs, t_over, t_under)
+            
+            p_data = {
+                "local": p['home_team'],
+                "visita": p['away_team'],
+                "fecha": fmt_fecha(p['commence_time'], simple=True),
+                "probabilidades": probs,
+                "mejor_apuesta_individual": best
+            }
+            formatted_matches.append(p_data)
+
         prompt = f"""
-ACTÚA COMO ANALISTA DE APUESTAS DEPORTIVAS. Datos del partido: {partido}
-Contexto: {contexto or 'Sin contexto adicional.'}
+ACTÓA COMO ANALISTA DE APUESTAS DEPORTIVAS experto.
+Datos de los partidos seleccionados (en formato JSON para precisión):
+{formatted_matches}
 
-REGLA CRÍTICA: SI UN DATO NO EXISTE EN LA API → MARCA 'DATO INSUFICIENTE'. PROHIBIDO INVENTAR.
+Contexto (aplica a todos los partidos relevantes): {contexto or 'Sin contexto adicional.'}
 
-Analiza estos 15 mercados:
-1. Ganador (1X2)  2. Doble Oportunidad  3. Ambos Marcan (BTTS)
-4. Hándicap Asiático  5. Resultado al Descanso  6. Descanso/Final
-7. Marcador Exacto (top 5)  8. Primer Goleador  9. Último Goleador
-10. Total Córners  11. Total Tarjetas  12. Quién Marca Primero
-13. Portería a Cero  14. Remates al Arco
-15. TABLA Over/Under: 0.5 / 1.5 / 2.5 / 3.5 / 4.5 / 5.5
+TU TAREA es generar EXACTAMENTE tres estrategias de apuestas detalladas a continuación. PROHIBIDO: Inventar datos. Si una estrategia solicitada es imposible con los datos proporcionados, marca 'DATO INSUFICIENTE'.
 
-FORMATO por mercado:
-### [N]. [Mercado]
-- Selección: [valor]
-- Cuota: [valor o DATO INSUFICIENTE]
-- Confianza: [Alta/Media/Baja]
-- Motivo: [máx 8 palabras]
+## 1. Estrategia Segura
+- Objetivo: Crear de 1 a 2 apuestas (picks) del *mismo* partido individual con la probabilidad de éxito absoluta MÁS ALTA de los datos proporcionados.
+- Formato:
+  - Partido: [Partido: Local vs Visita]
+  - Pick 1: [valor], Prob: [valor]%, Cuota: @[valor], Motivo: [max 8 palabras]
+  - Pick 2 (opcional, si 1 no es suficiente para ser 'seguro'): [valor], Prob: [valor]%, Cuota: @[valor], Motivo: [max 8 palabras]
+
+## 2. Estrategia Riesgo Medio
+- Objetivo: Crear una combinada (parlay) de 3 a 5 apuestas (picks) de partidos *diferentes* pero del *mismo* día calendario. Prioriza las probabilidades más altas.
+- Requisitos:
+  - Seleccionar de 3 a 5 picks.
+  - *Debe* ser de partidos del mismo día calendario.
+- Formato:
+  - Detalles Combinada: [Cuota Total, ej: @5.50]
+  - [Partido 1: Local vs Visita]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 8 palabras]
+  - [Partido 2: Local vs Visita]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 8 palabras]
+  - ... repetir para todos los picks.
+
+## 3. Estrategia Arriesgada
+- Objetivo: Crear una combinada (parlay) más grande de 5 a 7 apuestas (picks) de partidos *diferentes* del *mismo* día calendario. Prioriza probabilidades altas.
+- Requisitos:
+  - Seleccionar de 5 a 7 picks.
+  - *Debe* ser de partidos del mismo día calendario.
+- Formato:
+  - Detalles Combinada: [Cuota Total, ej: @10.50]
+  - [Partido 1: Local vs Visita]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 8 palabras]
+  - [Partido 2: Local vs Visita]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 8 palabras]
+  - ... repetir para todos los picks.
 """
-        with st.spinner("🔍 Analizando con Gemini 3.5 Flash..."):
+        with st.spinner("🔍 Analizando combinaciones con Gemini 3.5 Flash..."):
             try:
                 client = genai.Client(api_key=api_gemini)
                 resp = client.models.generate_content(
                     model="gemini-3.5-flash",
                     contents=prompt,
-                    config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.25)
+                    config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.2)
                 )
                 texto = resp.text
-                st.markdown("### 🔥 Análisis — 15 Mercados")
-                for sec in texto.split("###"):
+                st.markdown("### 🔥 Resultado del Análisis Combinado")
+                
+                # Render results in cleaner cards
+                for sec in texto.split("##"):
                     if sec.strip():
+                        # Extract header for title and content for the card
+                        lines = sec.strip().split('\n')
+                        title = lines[0].strip()
+                        content = '\n'.join(lines[1:]).strip()
+                        
                         st.markdown(
-                            f'<div class="result-card">{sec.strip()}</div>',
+                            f'<div class="result-card">'
+                            f'<h3>{title}</h3>'
+                            f'{content}'
+                            f'</div>',
                             unsafe_allow_html=True
                         )
                 st.success("✅ Análisis completado.")
