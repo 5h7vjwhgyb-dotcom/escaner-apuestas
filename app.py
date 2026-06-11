@@ -13,22 +13,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚽ Elite Sports Analytics")
+
 with st.sidebar:
     api_gemini = st.text_input("Clave Gemini:", type="password")
     api_odds = st.text_input("Clave Odds API:", type="password")
 
 if api_odds:
+    # URL con mercados extendidos para tus 15 categorías
     url = f'https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/?apiKey={api_odds}&regions=eu&markets=h2h,totals,corners'
     resp = requests.get(url).json()
     lista = {f"{p['home_team']} vs {p['away_team']}": p for p in resp}
-    partido = lista[st.selectbox("Partido:", list(lista.keys()))]
+    partido_nombre = st.selectbox("Partido:", list(lista.keys()))
+    partido = lista[partido_nombre]
 else:
+    st.info("Ingresa claves en el menú lateral.")
     partido = None
-contexto = st.text_area("Contexto:")
-if st.button("🚀 Analizar"):
-    genai.configure(api_key=api_gemini)
-    modelo = genai.GenerativeModel('gemini-3.5-flash')
-    prompt = f"Analiza {partido}. Contexto: {contexto}. Genera los 15 mercados en tarjetas con formato ### [Mercado]."
-    res = modelo.generate_content(prompt).text
-    for s in res.split("###"):
-        if s.strip(): st.markdown(f'<div class="card">{s}</div>', unsafe_allow_html=True)
