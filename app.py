@@ -13,3 +13,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚽ Elite Sports Analytics")
+with st.sidebar:
+    api_gemini = st.text_input("Clave Gemini:", type="password")
+    api_odds = st.text_input("Clave Odds API:", type="password")
+
+if api_odds:
+    url = f'https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/?apiKey={api_odds}&regions=eu&markets=h2h,totals,corners'
+    resp = requests.get(url).json()
+    lista = {f"{p['home_team']} vs {p['away_team']}": p for p in resp}
+    partido = lista[st.selectbox("Partido:", list(lista.keys()))]
+else:
+    partido = None
