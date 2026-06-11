@@ -28,3 +28,17 @@ if api_odds:
 else:
     st.info("Ingresa claves en el menú lateral.")
     partido = None
+contexto = st.text_area("Contexto cualitativo:")
+
+if st.button("🚀 Analizar 15 Mercados"):
+    if api_gemini and partido:
+        genai.configure(api_key=api_gemini)
+        modelo = genai.GenerativeModel('gemini-3.5-flash')
+        prompt = f"""Analiza {partido}. Contexto: {contexto}.
+        Genera 15 mercados: 1. Ganador, 2. Doble O, 3. Ambos Marcan, 4. Hándicap, 5. Descanso, 6. Descanso/Final, 7. Marcador, 8. 1er Goleador, 9. Último Goleador, 10. Córners, 11. Tarjetas, 12. Gol primero, 13. Portería a cero, 14. Remates, 15. Goles (Tabla 0.5 a 5.5).
+        Formato: ### [Mercado] \n - [Pick] @ [Cuota] | Confianza: [Alta/Media/Baja] | Justificación: [Breve]."""
+        
+        with st.spinner('Analizando...'):
+            res = modelo.generate_content(prompt).text
+            for s in res.split("###"):
+                if s.strip(): st.markdown(f'<div class="card">{s}</div>', unsafe_allow_html=True)
