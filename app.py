@@ -4,11 +4,9 @@ from google import genai
 from google.genai import types
 from datetime import datetime
 import math
-import collections # New import for date grouping
 
 # ═══════════════════════════════════════════════
-# BANDERAS (Copied from original for simplicity,
-# but a more complete list should be used or fetched)
+# BANDERAS
 # ═══════════════════════════════════════════════
 BANDERAS = {
     "Mexico":"🇲🇽","South Africa":"🇿🇦","South Korea":"🇰🇷",
@@ -222,12 +220,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ─── HEADER ──────────────────────────────────────────────────────
-api_gemini = st.secrets.get("gemini", {}).get("api_key", "")
-api_odds = st.secrets.get("odds", {}).get("api_key", "")
-online = bool(api_gemini and api_odds)
+# ─── HEADER Y CLAVES ─────────────────────────────────────────────
+api_gemini_ss = st.session_state.get("_gem","")
+api_odds_ss   = st.session_state.get("_odd","")
+online = bool(api_gemini_ss and api_odds_ss)
 dot    = "🟢" if online else "🔴"
-badge  = "EN LÍNEA (Secrets)" if online else "SIN CONEXIÓN (Revisa secrets.toml)"
+badge  = "EN LÍNEA" if online else "SIN CONEXIÓN"
 bcol   = "#22c55e" if online else "#ef4444"
 
 st.markdown(f"""
@@ -242,41 +240,40 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ─── CONFIGURACIÓN EXPANDER (Hidden Keys) ──────────────────────
-# Expander is kept but empty or with status for consistency
-with st.expander("⚙️  Configuración — Estado API", expanded=False):
-    if online:
-        st.success("✅ Las claves API se han cargado desde los secretos.")
-        st.caption("💡 Tier gratuito Odds API y Gemini Flash configurados.")
-    else:
-        st.warning("❌ Faltan claves API. Crea un archivo `.streamlit/secrets.toml` con las claves.")
-        st.code("""
-[gemini]
-api_key = "TU_GEMINI_KEY"
+# ─── CONFIGURACIÓN (Vuelven las casillas de texto) ───────────────
+with st.expander("⚙️  Configuración — Claves API", expanded=not online):
+    c1, c2 = st.columns(2)
+    with c1:
+        api_gemini = st.text_input("Gemini API Key", type="password",
+                                   help="aistudio.google.com", key="_gem")
+    with c2:
+        api_odds = st.text_input("Odds API Key", type="password",
+                                 help="the-odds-api.com", key="_odd")
+    st.caption("💡 Tier gratuito Odds API: 500 peticiones/mes · Gemini 3.5 Flash")
 
-[odds]
-api_key = "TU_ODDSAPI_KEY"
-""")
+# ─── LIGA Y AUTO-LOAD PARTIDOS (Próximos 6) ──────────────────────
+liga_label = st.selectbox("🏆 Liga para buscar próximos partidos", list(LIGAS.keys()), index=0)
+liga = LIGAS[liga_label]
 
-# ─── AUTO-LOAD PARTIDOS (Próximos 6) ───────────────────────────
 upcoming_matches = []
 upcoming_matches_dict = {}
+restantes = "?"
 
 if api_odds:
-    # Use a specific active league like MLS for "upcoming" for now
-    league_key = "soccer_usa_mls" 
-    url = (f"https://api.the-odds-api.com/v4/sports/{league_key}/odds/"
+    url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
            f"?apiKey={api_odds}&regions=eu&markets=h2h,totals")
     
-    with st.spinner(f"🚀 Cargando próximos partidos de MLS..."):
+    with st.spinner(f"🚀 Buscando próximos partidos..."):
         try:
             resp_raw = requests.get(url, timeout=10)
+            restantes = resp_raw.headers.get("x-requests-remaining","?")
             resp = resp_raw.json()
 
             if isinstance(resp, list) and len(resp) > 0:
-                # Sort by date
+                # Ordenar por fecha del partido
                 sorted_resp = sorted(resp, key=lambda x: x.get('commence_time', ''))
                 
+                # Agarrar los primeros 6
                 upcoming_matches = sorted_resp[:6]
                 for p in upcoming_matches:
                     name = f"{fmt_fecha(p['commence_time'], simple=True)}: {p['home_team']} vs {p['away_team']}"
@@ -284,7 +281,7 @@ if api_odds:
             elif isinstance(resp, dict) and resp.get("message"):
                  st.error(f"❌ Odds API Error: {resp['message']}")
             else:
-                 st.warning("⚠️ No se encontraron próximos partidos.")
+                 st.warning("⚠️ No se encontraron próximos partidos para esta liga.")
         except Exception as e:
             st.error(f"❌ Error al cargar partidos: {e}")
 
@@ -292,37 +289,47 @@ st.markdown("---")
 
 # ─── SELECCIÓN DE PARTIDOS ─────────────────────────────────────
 st.subheader("🎯 Selecciona de los próximos 6 partidos")
-selected_match_names = st.multiselect(
-    "Selecciona hasta 6 partidos",
-    options=list(upcoming_matches_dict.keys()),
-    default=None,
-    help="Selecciona los partidos que quieres analizar para generar las apuestas combinadas."
-)
 
-selected_matches = [upcoming_matches_dict[name] for name in selected_match_names]
+if upcoming_matches_dict:
+    selected_match_names = st.multiselect(
+        "Selecciona hasta 6 partidos",
+        options=list(upcoming_matches_dict.keys()),
+        default=None,
+        help="Selecciona los partidos que quieres analizar para generar las apuestas combinadas."
+    )
+    
+    selected_matches = [upcoming_matches_dict[name] for name in selected_match_names]
 
-# Display simplified cards for selected matches
-if selected_matches:
-    st.markdown("### 👀 Vista previa de selección")
-    for i, p in enumerate(selected_matches):
-        st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
+    # Mostrar tarjetas simples para los partidos seleccionados
+    if selected_matches:
+        st.markdown("### 👀 Vista previa de selección")
+        for i, p in enumerate(selected_matches):
+            st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
+            
+        st.markdown(
+            f'<div style="color:#6b7280;font-size:10px;text-align:right;'
+            f'margin-top:-10px;margin-bottom:10px;">'
+            f'📊 Peticiones Odds restantes: <strong style="color:#e1e1e1;">{restantes}</strong>/500</div>',
+            unsafe_allow_html=True
+        )
 else:
-    st.info("Ingresa los secretos para ver los próximos partidos.")
+    selected_matches = []
+    st.info("Ingresa tus claves API arriba para ver los próximos partidos disponibles.")
 
 # ─── CONTEXTO + ANÁLISIS COMBINADO ──────────────────────────────
 st.markdown("---")
 contexto = st.text_area(
     "📋 Contexto adicional (opcional)",
-    placeholder="Ej: Local con racha imparable · Visita con baja de su goleador principal"
+    placeholder="Ej: Si quieres darle información a la IA sobre bajas de jugadores en estos partidos..."
 )
 
 if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
     if not api_gemini:
-        st.error("❌ Falta la Gemini API Key.")
+        st.error("❌ Falta la Gemini API Key. Ponla en Configuración.")
     elif not selected_matches:
-        st.error("❌ Selecciona al menos un partido primero.")
+        st.error("❌ Selecciona al menos un partido de la lista de arriba primero.")
     else:
-        # Pre-process match data for prompt
+        # Extraer cuotas y mercado para el prompt
         formatted_matches = []
         for p in selected_matches:
             h2h, t_over, t_under = extraer_odds(p)
@@ -334,49 +341,46 @@ if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
                 "visita": p['away_team'],
                 "fecha": fmt_fecha(p['commence_time'], simple=True),
                 "probabilidades": probs,
-                "mejor_apuesta_individual": best
+                "mejor_apuesta_individual": best,
+                "cuotas_1x2": h2h,
+                "goles_over": t_over,
+                "goles_under": t_under
             }
             formatted_matches.append(p_data)
 
         prompt = f"""
-ACTÓA COMO ANALISTA DE APUESTAS DEPORTIVAS experto.
-Datos de los partidos seleccionados (en formato JSON para precisión):
+ACTÚA COMO ANALISTA DE APUESTAS DEPORTIVAS experto.
+Datos de los partidos seleccionados (en formato JSON para precisión, extraídos de los mercados 1X2 y Totales Over/Under):
 {formatted_matches}
 
 Contexto (aplica a todos los partidos relevantes): {contexto or 'Sin contexto adicional.'}
 
-TU TAREA es generar EXACTAMENTE tres estrategias de apuestas detalladas a continuación. PROHIBIDO: Inventar datos. Si una estrategia solicitada es imposible con los datos proporcionados, marca 'DATO INSUFICIENTE'.
+TU TAREA es generar EXACTAMENTE tres estrategias de apuestas detalladas a continuación basadas ÚNICAMENTE en las cuotas dadas.
+PROHIBIDO: Inventar datos. Si una estrategia solicitada es imposible con los datos proporcionados, marca 'DATO INSUFICIENTE'.
 
-## 1. Estrategia Segura
-- Objetivo: Crear de 1 a 2 apuestas (picks) del *mismo* partido individual con la probabilidad de éxito absoluta MÁS ALTA de los datos proporcionados.
+## 1. Apuesta Segura
+- Objetivo: Crear de 1 a 2 apuestas (picks) del *mismo* partido individual (de los que te pasé) con la probabilidad de éxito absoluta MÁS ALTA.
 - Formato:
   - Partido: [Partido: Local vs Visita]
-  - Pick 1: [valor], Prob: [valor]%, Cuota: @[valor], Motivo: [max 8 palabras]
-  - Pick 2 (opcional, si 1 no es suficiente para ser 'seguro'): [valor], Prob: [valor]%, Cuota: @[valor], Motivo: [max 8 palabras]
+  - Pick 1: [valor], Probabilidad calculada: [valor]%, Cuota: @[valor], Motivo: [max 15 palabras]
+  - Pick 2 (opcional): [valor], Probabilidad calculada: [valor]%, Cuota: @[valor], Motivo: [max 15 palabras]
 
-## 2. Estrategia Riesgo Medio
-- Objetivo: Crear una combinada (parlay) de 3 a 5 apuestas (picks) de partidos *diferentes* pero del *mismo* día calendario. Prioriza las probabilidades más altas.
-- Requisitos:
-  - Seleccionar de 3 a 5 picks.
-  - *Debe* ser de partidos del mismo día calendario.
+## 2. Apuesta de Riesgo Medio (Combinada/Parlay)
+- Objetivo: Crear una combinada (parlay) mezclando de 3 a 5 apuestas (picks) de partidos *diferentes* (de la lista de seleccionados) pero que se jueguen el *mismo* día calendario. Prioriza las probabilidades más altas.
 - Formato:
-  - Detalles Combinada: [Cuota Total, ej: @5.50]
-  - [Partido 1: Local vs Visita]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 8 palabras]
-  - [Partido 2: Local vs Visita]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 8 palabras]
+  - Detalles Combinada: Cuota Total aprox. @[multiplica las cuotas]
+  - [Partido 1: Local vs Visita]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 10 palabras]
+  - [Partido 2: Local vs Visita]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 10 palabras]
   - ... repetir para todos los picks.
 
-## 3. Estrategia Arriesgada
-- Objetivo: Crear una combinada (parlay) más grande de 5 a 7 apuestas (picks) de partidos *diferentes* del *mismo* día calendario. Prioriza probabilidades altas.
-- Requisitos:
-  - Seleccionar de 5 a 7 picks.
-  - *Debe* ser de partidos del mismo día calendario.
+## 3. Apuesta Arriesgada (Combinada/Parlay Larga)
+- Objetivo: Crear una combinada más grande de 5 a 7 apuestas (picks) de partidos *diferentes* (de la lista) del *mismo* día calendario. Trata de buscar buenas cuotas pero que sigan siendo probables.
 - Formato:
-  - Detalles Combinada: [Cuota Total, ej: @10.50]
-  - [Partido 1: Local vs Visita]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 8 palabras]
-  - [Partido 2: Local vs Visita]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 8 palabras]
+  - Detalles Combinada: Cuota Total aprox. @[multiplica las cuotas]
+  - [Partido 1]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 10 palabras]
   - ... repetir para todos los picks.
 """
-        with st.spinner("🔍 Analizando combinaciones con Gemini 3.5 Flash..."):
+        with st.spinner("🔍 Analizando combinaciones con IA..."):
             try:
                 client = genai.Client(api_key=api_gemini)
                 resp = client.models.generate_content(
@@ -385,7 +389,7 @@ TU TAREA es generar EXACTAMENTE tres estrategias de apuestas detalladas a contin
                     config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.2)
                 )
                 texto = resp.text
-                st.markdown("### 🔥 Resultado del Análisis Combinado")
+                st.markdown("### 🔥 Resultados de tus Estrategias")
                 
                 # Render results in cleaner cards
                 for sec in texto.split("##"):
@@ -397,13 +401,13 @@ TU TAREA es generar EXACTAMENTE tres estrategias de apuestas detalladas a contin
                         
                         st.markdown(
                             f'<div class="result-card">'
-                            f'<h3>{title}</h3>'
+                            f'<h3 style="color:#00e676;margin-top:0;">{title}</h3>'
                             f'{content}'
                             f'</div>',
                             unsafe_allow_html=True
                         )
                 st.success("✅ Análisis completado.")
             except Exception as e:
-                st.error(f"❌ Error Gemini: {e}")
+                st.error(f"❌ Error al consultar IA: {e}")
 
 st.markdown('<div style="height:30px;"></div>', unsafe_allow_html=True)
