@@ -24,3 +24,11 @@ if api_odds:
     partido = lista[st.selectbox("Partido:", list(lista.keys()))]
 else:
     partido = None
+contexto = st.text_area("Contexto:")
+if st.button("🚀 Analizar"):
+    genai.configure(api_key=api_gemini)
+    modelo = genai.GenerativeModel('gemini-3.5-flash')
+    prompt = f"Analiza {partido}. Contexto: {contexto}. Genera los 15 mercados en tarjetas con formato ### [Mercado]."
+    res = modelo.generate_content(prompt).text
+    for s in res.split("###"):
+        if s.strip(): st.markdown(f'<div class="card">{s}</div>', unsafe_allow_html=True)
