@@ -1,101 +1,65 @@
 import streamlit as st
 import requests
 import google.generativeai as genai
+from datetime import datetime, timedelta
 
-# 1. Configuración de la página web
-st.set_page_config(page_title="Analytics Scanner", page_icon="⚽", layout="centered")
-st.title("📊 Escáner Analítico de Apuestas")
+# --- DISEÑO GLASSMORPHISM ---
+st.set_page_config(page_title="Analytics Pro", layout="wide")
+st.markdown("""
+<style>
+    .stApp { background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); color: white; }
+    div.stButton > button { background: linear-gradient(90deg, #ff9a9e, #fad0c4); border-radius: 15px; font-weight: bold; }
+    .glass { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(15px); border-radius: 20px; padding: 20px; }
+</style>
+""", unsafe_allow_html=True)
 
-# 2. Menú lateral para las configuraciones y seguridad
+st.title("⚽ Elite Sports Analytics - Veracidad Total")
+
+# --- LÓGICA DE API ---
 with st.sidebar:
-    st.header("⚙️ Configuración del Sistema")
-    st.write("Ingresa tus credenciales para habilitar el motor:")
-    api_gemini = st.text_input("Clave de Google AI Studio:", type="password")
-    api_odds = st.text_input("Clave de The Odds API:", type="password")
-    
-    st.divider()
-    st.write("Selecciona la liga a escanear:")
-    torneo = st.selectbox("Liga / Torneo", [
-        "soccer_fifa_world_cup", 
-        "soccer_epl", 
-        "soccer_mexico_ligamx", 
-        "basketball_nba"
-    ])
+    api_gemini = st.text_input("Clave Gemini:", type="password")
+    api_odds = st.text_input("Clave Odds API:", type="password")
 
-# 3. Interfaz principal para el usuario
-st.write("### Contexto del Partido")
-st.write("Ingresa las variables cualitativas para que la IA ajuste la probabilidad matemática.")
-contexto_usuario = st.text_area(
-    "Lesiones, clima, localía, rachas, altitud, etc.:", 
-    placeholder="Ej: El equipo local juega con suplentes y hay alerta de lluvia..."
-)
-
-# 4. El Botón de Acción
-if st.button("🚀 Iniciar Escáner y Analizar", use_container_width=True):
+if api_odds:
+    # Filtramos partidos de los próximos 3 días
+    url = f'https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/?apiKey={api_odds}&regions=eu&markets=h2h'
+    resp = requests.get(url).json()
     
-    # Validar que las llaves estén ingresadas
-    if not api_gemini or not api_odds:
-        st.warning("⚠️ Por favor ingresa ambas claves API en el menú lateral de la izquierda.")
-    else:
-        # Configurar el cerebro (IA)
+    # Filtro lógico para 3 días (72 horas)
+    ahora = datetime.utcnow()
+    limite = ahora + timedelta(days=3)
+    partidos_filtrados = []
+    
+    for p in resp:
+        # Convertimos fecha ISO a objeto datetime
+        commence = datetime.strptime(p['commence_time'], '%Y-%m-%dT%H:%M:%SZ')
+        if commence <= limite:
+            partidos_filtrados.append(p)
+            
+    lista_nombres = {f"{p['commence_time']} | {p['home_team']} vs {p['away_team']}": p for p in partidos_filtrados}
+    partido = st.selectbox("Próximos partidos (3 días):", list(lista_nombres.keys()))
+    partido_seleccionado = lista_nombres[partido]
+else:
+    st.info("Ingresa tu clave de Odds API.")
+    partido_seleccionado = None
+
+# --- ANÁLISIS ---
+if st.button("🚀 Analizar con Datos Verídicos"):
+    if api_gemini and partido_seleccionado:
         genai.configure(api_key=api_gemini)
-        instrucciones = """
-        Eres un algoritmo avanzado de Sports Analytics especializado en la detección de "Apuestas de Valor".
-        Ejecuta este proceso:
-        1. CÁLCULO DE PROBABILIDAD IMPLÍCITA: Calcula la probabilidad exigida usando: (1 / cuota) * 100. Obligatorio: Debes incluir los pasos de desarrollo detallados de la fórmula matemática.
-        2. AJUSTE DE CONTEXTO: Evalúa las variables entregadas por el usuario.
-        3. PROBABILIDAD REAL: Asigna un porcentaje de éxito real.
-        4. VEREDICTO DE VALOR: 
-        - Si Probabilidad Real > Probabilidad Implícita = "VEREDICTO: VALOR POSITIVO".
-        - Si es menor o igual = "VEREDICTO: SIN VALOR".
+        modelo = genai.GenerativeModel('gemini-3.5-flash')
+        
+        # INSTRUCCIONES DE ORO: Cero invención
+        prompt = f"""
+        ACTÚA COMO UN ANALISTA DE DATOS ESTRICTO.
+        Datos reales del partido: {partido_seleccionado}.
+        REGLAS:
+        1. NO ALUCINES. Si no tienes la estadística de una lesión o clima, NO LA INVENTES.
+        2. BASA TODO EN LAS CUOTAS REALES PROPORCIONADAS.
+        3. Si la información es insuficiente, decláralo.
+        4. Genera obligatoriamente 3 secciones: ### Segura, ### Media, ### Arriesgada.
         """
         
-        modelo = genai.GenerativeModel(
-            model_name='gemini-3.5-flash', 
-            system_instruction=instrucciones,
-            generation_config={"temperature": 0.0}
-        )
-        
-        # Conectar con las casas de apuestas
-        url = f'https://api.the-odds-api.com/v4/sports/{torneo}/odds/?apiKey={api_odds}&regions=eu&markets=h2h'
-        
-        with st.spinner('📡 Escaneando el mercado mundial de cuotas...'):
-            resp = requests.get(url)
-            
-        if resp.status_code == 200:
-            datos = resp.json()
-            if len(datos) > 0:
-                partido = datos[0]
-                equipo_local = partido['home_team']
-                equipo_visitante = partido['away_team']
-                
-                # Algoritmo de búsqueda de la mejor cuota
-                mejor_cuota = 0.0
-                casa = ""
-                for bookmaker in partido['bookmakers']:
-                    for market in bookmaker['markets']:
-                        if market['key'] == 'h2h':
-                            for outcome in market['outcomes']:
-                                if outcome['name'] == equipo_local and outcome['price'] > mejor_cuota:
-                                    mejor_cuota = outcome['price']
-                                    casa = bookmaker['title']
-                                    
-                st.success(f"✅ Mejor mercado encontrado: **{equipo_local}** a cuota **{mejor_cuota}** en {casa}")
-                
-                # Compilar datos y enviar a la IA
-                prompt_final = f"""
-                Partido: {equipo_local} vs {equipo_visitante}
-                Cuota para {equipo_local}: {mejor_cuota}
-                Contexto cualitativo: {contexto_usuario}
-                """
-                
-                with st.spinner('🧠 Ejecutando matemática y análisis de valor...'):
-                    try:
-                        respuesta = modelo.generate_content(prompt_final)
-                        st.markdown(respuesta.text)
-                    except Exception as e:
-                        st.error(f"⚠️ Error de procesamiento IA: {e}")
-            else:
-                st.info("No hay partidos próximos programados para la liga seleccionada.")
-        else:
-            st.error("⚠️ Error de conexión con The Odds API. Verifica tu clave.")
+        with st.spinner('Analizando datos reales...'):
+            respuesta = modelo.generate_content(prompt).text
+            st.markdown(respuesta)
