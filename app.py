@@ -2,9 +2,17 @@ import streamlit as st
 import requests
 from google import genai
 from google.genai import types
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import math
 import json
+
+# Manejo seguro de Zona Horaria de Chile (Soporta verano/invierno nativamente)
+try:
+    from zoneinfo import ZoneInfo
+    TZ_CHILE = ZoneInfo("America/Santiago")
+except ImportError:
+    # Respaldo (Fallback) a UTC-4 si la versión de Python no tiene zoneinfo
+    TZ_CHILE = timezone(timedelta(hours=-4))
 
 # ═══════════════════════════════════════════════
 # TRADUCCIONES Y BANDERAS
@@ -137,13 +145,17 @@ def mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es):
 
 def fmt_fecha(iso, simple=False):
     try:
+        # Convertimos desde UTC a horario de Chile directamente
         dt = datetime.fromisoformat(iso.replace("Z","+00:00"))
-        if simple: return dt.strftime('%Y-%m-%d')
+        dt_chile = dt.astimezone(TZ_CHILE)
+        
+        if simple: return dt_chile.strftime('%Y-%m-%d')
         dias = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"]
         meses = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
-        # Retorna ej: "Sáb 13 Jun · 19:00 UTC"
-        return f"{dias[dt.isoweekday()%7]} {dt.day} {meses[dt.month]} · {dt.strftime('%H:%M')} UTC"
-    except: return "Fecha no disponible · 00:00 UTC"
+        
+        # Retorna ej: "Sáb 13 Jun · 15:00 (Chile)"
+        return f"{dias[dt_chile.isoweekday()%7]} {dt_chile.day} {meses[dt_chile.month]} · {dt_chile.strftime('%H:%M')} (Chile)"
+    except: return "Fecha no disponible · 00:00 (Chile)"
 
 def render_simplified_card(partido, idx=1):
     home_en = partido.get("home_team","Local")
@@ -349,36 +361,29 @@ st.subheader("🎯 Selecciona los partidos")
 selected_matches = []
 
 if upcoming_matches:
-    # 1. Agrupar partidos por día
     partidos_por_dia = {}
     for p in upcoming_matches:
         fecha_str = fmt_fecha(p['commence_time'])
         dia = fecha_str.split(" · ")[0]  # Ej: Sáb 13 Jun
-        hora = fecha_str.split(" · ")[1] # Ej: 19:00 UTC
+        hora = fecha_str.split(" · ")[1] # Ej: 15:00 (Chile)
         
         if dia not in partidos_por_dia:
             partidos_por_dia[dia] = []
         partidos_por_dia[dia].append((p, hora))
         
-    # 2. Renderizar visualmente
     for dia, lista in partidos_por_dia.items():
-        # Etiqueta de la Fecha
         st.markdown(f"<div style='background:#1e293b; padding:6px 12px; border-radius:6px; color:#93c5fd; font-weight:800; font-size:13px; margin-top:16px; margin-bottom:8px; border-left:4px solid #3b82f6;'>📅 {dia}</div>", unsafe_allow_html=True)
         
-        # Interruptores para los partidos
         for p, hora in lista:
             home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
             away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
             
-            # Usamos Toggle (Interruptor estilo iOS) 
             label_partido = f"⚽ **{home_es} vs {away_es}** *(🕒 {hora})*"
-            # Generar un ID único por si el partido se repite o falla la API
             unique_key = p.get('id', p['home_team'] + p['commence_time'])
             
             if st.toggle(label_partido, key=unique_key):
                 selected_matches.append(p)
 
-    # 3. Mostrar las tarjetas de los que encendió
     if selected_matches:
         st.markdown("<br>### 📊 Análisis del Mercado", unsafe_allow_html=True)
         for i, p in enumerate(selected_matches):
