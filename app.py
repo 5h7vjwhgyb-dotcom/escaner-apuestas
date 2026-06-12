@@ -4,6 +4,7 @@ from google import genai
 from google.genai import types
 from datetime import datetime
 import math
+import json
 
 # ═══════════════════════════════════════════════
 # TRADUCCIONES Y BANDERAS
@@ -145,7 +146,6 @@ def render_simplified_card(partido, idx=1):
     home_en = partido.get("home_team","Local")
     away_en = partido.get("away_team","Visita")
     
-    # Traducciones al Español
     home_es = TRADUCCIONES.get(home_en, home_en)
     away_es = TRADUCCIONES.get(away_en, away_en)
     
@@ -156,7 +156,6 @@ def render_simplified_card(partido, idx=1):
     
     hp, dp, ap = probs["home"], probs["draw"], probs["away"]
     
-    # Formateo de Cuotas (Odds) para la UI
     odd_h = f"@{h2h['home']}" if h2h.get('home') else "N/A"
     odd_d = f"@{h2h['draw']}" if h2h.get('draw') else "N/A"
     odd_a = f"@{h2h['away']}" if h2h.get('away') else "N/A"
@@ -196,7 +195,7 @@ def render_simplified_card(partido, idx=1):
 </div>"""
 
 # ═══════════════════════════════════════════════════════════════
-# APP
+# APP UI
 # ═══════════════════════════════════════════════════════════════
 st.set_page_config(page_title="BET⚡COMBINADAS", layout="centered", initial_sidebar_state="collapsed")
 
@@ -239,11 +238,13 @@ st.markdown("""
 
   [data-testid="stAlert"] { border-radius:12px !important; }
   hr { border-color:#2d3748 !important; }
-
-  .result-card {
-    background:#161c2b; border-left:4px solid #00e676; border-radius:12px; padding:16px; margin-bottom:14px;
-    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    color:#e1e1e1; font-size:13px; line-height:1.6;
+  
+  /* Pestañas de Streamlit personalizadas */
+  [data-testid="stTabs"] button {
+    color: #8b949e !important; font-weight: 700 !important;
+  }
+  [data-testid="stTabs"] button[aria-selected="true"] {
+    color: #00e676 !important; border-bottom-color: #00e676 !important;
   }
 </style>
 """, unsafe_allow_html=True)
@@ -342,7 +343,7 @@ else:
     selected_matches = []
     st.info("Ingresa tus claves API arriba para ver los próximos partidos disponibles.")
 
-# ─── CONTEXTO + ANÁLISIS IA ────────────────────────────────────
+# ─── CONTEXTO + ANÁLISIS IA (VERSIÓN TICKETS/TABS) ───────────────
 st.markdown("---")
 contexto = st.text_area(
     "📋 Contexto adicional para la IA (opcional)",
@@ -361,14 +362,11 @@ if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
             probs = calcular_probs(h2h)
             home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
             away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
-            best = mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es)
             
             p_data = {
                 "local": home_es,
                 "visita": away_es,
                 "fecha": fmt_fecha(p['commence_time'], simple=True),
-                "probabilidades": probs,
-                "mejor_apuesta_individual": best,
                 "cuotas_1x2": h2h,
                 "goles_over": t_over,
                 "goles_under": t_under
@@ -376,61 +374,101 @@ if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
             formatted_matches.append(p_data)
 
         prompt = f"""
-Actúa como un tipster y analista experto en apuestas deportivas de fútbol. Tu tarea es analizar los siguientes partidos seleccionados y generar tres opciones de apuestas (parleys/combinadas) categorizadas por nivel de riesgo.
-
-Datos de los partidos en formato JSON (cuotas reales extraídas de mercados 1X2 y Totales Over/Under de las casas de apuestas, junto con las probabilidades matemáticas):
+Actúa como un tipster experto en fútbol. Analiza estos partidos y sus cuotas reales:
 {formatted_matches}
 
-Contexto adicional del usuario: {contexto or 'Sin contexto adicional proporcionado.'}
+Contexto extra: {contexto or 'Ninguno.'}
 
-INSTRUCCIONES:
-Elige el mejor partido (o combina los mejores de la lista) para construir tus pronósticos. Usa las cuotas proporcionadas como base fundamental. Para las predicciones tácticas (córners, tarjetas, tiros), usa tu base de datos de conocimiento sobre cómo juegan estos equipos.
+Genera 3 estrategias de apuestas (Segura, Moderada, Arriesgada) basándote en las cuotas dadas y tu conocimiento táctico. 
+DEBES responder ÚNICAMENTE con un objeto JSON válido usando exactamente esta estructura, sin texto fuera del JSON (no uses markdown como ```json):
 
-Antes de dar los pronósticos, haz una muy breve introducción (dos o tres líneas) sobre el contexto táctico de los partidos seleccionados basándote en los datos y tu conocimiento.
-
-Luego, entrégame las tres apuestas siguiendo ESTRICTAMENTE esta estructura y formato, utilizando encabezados "##":
-
-## 1. La Apuesta Segura (Bajo Riesgo)
-* **Formato:** Una apuesta combinada clásica de máximo 2 selecciones. Prioriza que ambas selecciones sean de un MISMO partido de la lista.
-* **Requisito:** Deben ser los mercados más probables basándote en el JSON (ej. Doble Oportunidad, Más/Menos goles). Justifica brevemente por qué es segura basándote en la tendencia y las probabilidades provistas.
-
-## 2. La Apuesta Moderada (Riesgo Medio)
-* **Formato:** Una función "Crear Apuesta" (Bet Builder) de 3 a 4 selecciones para UN MISMO PARTIDO de la lista.
-* **Requisito:** Incluye los mercados de goles/resultado del JSON y combínalos con tus propias inferencias tácticas (ej. tiros a puerta de un jugador clave, más de X córners o tarjetas). Justifica cada selección con datos tácticos o el estilo de juego real de los equipos.
-
-## 3. La Apuesta Arriesgada (Baja Inversión, Cuota Alta)
-* **Formato:** Un parley largo de 5 a 7 selecciones. Puedes usar un "Crear Apuesta" de un solo partido o mezclar varios de la lista.
-* **Requisito:** Aunque es arriesgada por la cantidad de líneas, CADA SELECCIÓN debe tener una alta probabilidad matemática o táctica de ocurrir. Utiliza líneas bajas de córners, faltas, o mercados del JSON. Justifica cada punto de forma rápida y directa.
-
-Tono y Estilo:
-El lenguaje debe ser profesional, objetivo y persuasivo. No uses lenguaje excesivamente complejo.
+{{
+  "intro": "Breve introducción táctica general (máx 3 líneas).",
+  "estrategias": [
+    {{
+      "nivel": "🛡️ La Apuesta Segura (Bajo Riesgo)",
+      "picks": [
+        {{"partido": "Local vs Visita", "seleccion": "Mercado elegido", "cuota": "1.50"}}
+      ],
+      "cuota_total": "1.50",
+      "justificacion": "Por qué es segura..."
+    }},
+    {{
+      "nivel": "⚖️ La Apuesta Moderada (Riesgo Medio)",
+      "picks": [
+        {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.80"}},
+        {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.30"}}
+      ],
+      "cuota_total": "2.34",
+      "justificacion": "Análisis táctico..."
+    }},
+    {{
+      "nivel": "🔥 La Apuesta Arriesgada (Alta Cuota)",
+      "picks": [
+        {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "2.10"}},
+        {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "3.00"}}
+      ],
+      "cuota_total": "6.30",
+      "justificacion": "Análisis rápido..."
+    }}
+  ]
+}}
 """
-        with st.spinner("🧠 Procesando datos matemáticos y tácticos..."):
+        with st.spinner("🧠 Procesando datos y diseñando tickets..."):
             try:
                 client = genai.Client(api_key=api_gemini)
                 resp = client.models.generate_content(
                     model="gemini-3.5-flash",
                     contents=prompt,
-                    config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.2)
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=4096, 
+                        temperature=0.2,
+                        response_mime_type="application/json"
+                    )
                 )
-                texto = resp.text
-                st.markdown("### 🔥 El Veredicto de la IA")
                 
-                for sec in texto.split("##"):
-                    if sec.strip():
-                        lines = sec.strip().split('\n')
-                        title = lines[0].strip()
-                        content = '\n'.join(lines[1:]).strip()
+                data = json.loads(resp.text)
+                
+                st.markdown("### 🔥 Veredicto de la IA")
+                
+                st.markdown(f"""
+                <div style="background:#0d1117; border-left:4px solid #3b82f6; padding:12px 16px; border-radius:8px; margin-bottom:20px; font-size:14px; color:#e1e1e1;">
+                    <i>{data.get('intro', '')}</i>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                tabs = st.tabs(["🛡️ Segura", "⚖️ Moderada", "🔥 Arriesgada"])
+                
+                for i, tab in enumerate(tabs):
+                    with tab:
+                        est = data['estrategias'][i]
                         
-                        st.markdown(
-                            f'<div class="result-card">'
-                            f'<h3 style="color:#00e676;margin-top:0;">{title}</h3>'
-                            f'{content}'
-                            f'</div>',
-                            unsafe_allow_html=True
-                        )
-                st.success("✅ Análisis completado con éxito.")
+                        picks_html = ""
+                        for pick in est['picks']:
+                            picks_html += f"""<div style="background:#0f172a; padding:12px; border-radius:8px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; border:1px solid #1e293b;">
+<div style="display:flex; flex-direction:column;">
+<span style="color:#8b949e; font-size:11px; font-weight:700;">⚽ {pick['partido']}</span>
+<span style="color:#e1e1e1; font-size:14px; font-weight:600; margin-top:2px;">{pick['seleccion']}</span>
+</div>
+<span style="background:#10b981; color:#0f172a; padding:4px 10px; border-radius:6px; font-weight:800; font-size:13px;">@{pick['cuota']}</span>
+</div>"""
+                        
+                        st.markdown(f"""<div style="background:#161c2b; border:2px dashed #2d3748; border-radius:12px; padding:16px; margin-top:8px;">
+<h4 style="color:#f8fafc; margin-top:0; border-bottom:1px solid #2d3748; padding-bottom:10px; margin-bottom:16px;">{est['nivel']}</h4>
+{picks_html}
+<div style="display:flex; justify-content:flex-end; margin-top:16px; margin-bottom:16px;">
+<div style="background:#3b82f615; border:1px solid #3b82f6; padding:8px 16px; border-radius:8px;">
+<span style="color:#93c5fd; font-size:12px; font-weight:700;">CUOTA TOTAL APROX:</span>
+<span style="color:#60a5fa; font-size:18px; font-weight:900; margin-left:8px;">@{est['cuota_total']}</span>
+</div>
+</div>
+<div style="background:#1e293b; padding:12px; border-radius:8px; border-left:3px solid #f59e0b;">
+<span style="color:#fcd34d; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px;">Análisis Táctico</span>
+<p style="color:#cbd5e1; font-size:13px; line-height:1.5; margin-top:6px; margin-bottom:0;">{est['justificacion']}</p>
+</div>
+</div>""", unsafe_allow_html=True)
+                        
             except Exception as e:
-                st.error(f"❌ Error al consultar IA: {e}")
+                st.error(f"❌ Error al procesar respuesta de la IA: Asegúrate de seleccionar partidos válidos. Detalle: {e}")
 
 st.markdown('<div style="height:30px;"></div>', unsafe_allow_html=True)
