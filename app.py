@@ -70,7 +70,6 @@ LIGAS = {
 # ═══════════════════════════════════════════════
 @st.cache_data(ttl=43200, show_spinner=False)
 def obtener_partidos_api(liga, api_key):
-    # Retiramos el mercado 'btts' para evitar el error de la API
     url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
            f"?apiKey={api_key}&regions=eu&markets=h2h,totals")
     try:
@@ -258,9 +257,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ─── HEADER Y CLAVES ─────────────────────────────────────────────
-api_gemini_ss = st.session_state.get("_gem","")
-api_odds_ss   = st.session_state.get("_odd","")
+# ─── LECTURA DE SECRETS Y CLAVES ─────────────────────────────────
+# Lee de Streamlit Secrets. Si no existen, usa lo que el usuario ponga a mano.
+secret_gemini = st.secrets.get("GEMINI_API", "")
+secret_odds = st.secrets.get("ODDS_API", "")
+
+api_gemini_ss = secret_gemini or st.session_state.get("_gem","")
+api_odds_ss   = secret_odds or st.session_state.get("_odd","")
 online = bool(api_gemini_ss and api_odds_ss)
 dot    = "🟢" if online else "🔴"
 badge  = "EN LÍNEA" if online else "SIN CONEXIÓN"
@@ -280,11 +283,16 @@ st.markdown(f"""
 
 # ─── CONFIGURACIÓN ───────────────────────────────────────────────
 with st.expander("⚙️ Configuración — Claves API", expanded=not online):
-    c1, c2 = st.columns(2)
-    with c1:
-        api_gemini = st.text_input("Gemini API Key", type="password", help="aistudio.google.com", key="_gem")
-    with c2:
-        api_odds = st.text_input("Odds API Key", type="password", help="the-odds-api.com", key="_odd")
+    if secret_gemini and secret_odds:
+        st.success("✅ Claves API cargadas de forma permanente y segura desde la bóveda de Streamlit Secrets.")
+        api_gemini = secret_gemini
+        api_odds = secret_odds
+    else:
+        c1, c2 = st.columns(2)
+        with c1:
+            api_gemini = st.text_input("Gemini API Key", type="password", help="aistudio.google.com", key="_gem")
+        with c2:
+            api_odds = st.text_input("Odds API Key", type="password", help="the-odds-api.com", key="_odd")
 
 # ─── SELECCIÓN DE LIGA Y BOTÓN ACTUALIZAR ────────────────────────
 col_liga, col_btn = st.columns([3, 1])
