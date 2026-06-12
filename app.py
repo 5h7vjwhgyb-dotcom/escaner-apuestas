@@ -337,11 +337,11 @@ Responde ÚNICAMENTE con este JSON para cada partido:
   }}
 }}
 """
-        with st.spinner("🧠 El algoritmo de Gemini está procesando los vectores tácticos..."):
+                with st.spinner("🧠 El algoritmo de Gemini está procesando los vectores tácticos..."):
             try:
                 client = genai.Client(api_key=api_gemini)
                 resp = client.models.generate_content(
-                    model="gemini-1.5-flash",
+                    model="gemini-2.0-flash", # 👈 SOLUCIÓN: Actualizado a la versión actual
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         max_output_tokens=4000, 
