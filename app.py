@@ -373,11 +373,17 @@ if upcoming_matches:
             if st.toggle(f"⚽ **{home_es} vs {away_es}** *(🕒 {hora})*", key=p.get('id', p['home_team']+p['commence_time'])):
                 selected_matches.append(p)
 
-    if selected_matches:
+        if selected_matches:
         st.markdown("<br>### 📊 Análisis del Mercado", unsafe_allow_html=True)
         for i, p in enumerate(selected_matches): st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
 else:
-    st.info("Ingresa tus claves API para ver los próximos partidos disponibles.")
+    # NUEVO: Lógica que muestra el error real de la API si existe
+    if api_odds and isinstance(resp, dict) and "message" in resp:
+        st.error(f"❌ El servidor de The-Odds-API dice: {resp['message']}")
+    elif api_odds:
+        st.warning("⚠️ La conexión fue exitosa, pero no hay partidos con cuotas disponibles para esta liga en este momento. Cambia de liga arriba.")
+    else:
+        st.info("Ingresa tus claves API para ver los próximos partidos disponibles.")
 
 # ─── ANÁLISIS IA AUTOMATIZADO CON LÍMITES MATEMÁTICOS Y CACHÉ LOCAL ───
 st.markdown("---")
