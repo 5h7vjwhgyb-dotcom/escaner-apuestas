@@ -383,7 +383,7 @@ Responde ÚNICAMENTE con este JSON para cada partido:
             try:
                 client = genai.Client(api_key=api_gemini)
                 resp = client.models.generate_content(
-                    model="gemini-1.5-flash",
+                    model="gemini-3.5-flash",
                     contents=prompt,
                     config=types.GenerateContentConfig(temperature=0.2, response_mime_type="application/json")
                 )
