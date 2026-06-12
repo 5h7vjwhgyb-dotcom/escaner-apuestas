@@ -233,8 +233,11 @@ st.markdown("""
   .stTextInput input { background:#161c2b !important; color:#e1e1e1 !important; border:1px solid #2d3748 !important; border-radius:10px !important; }
   [data-testid="stExpander"] { background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:12px !important; }
   [data-testid="stExpanderToggleIcon"] svg { fill:#00e676 !important; }
-  .stButton > button { background:linear-gradient(90deg,#00e676,#00b4d8) !important; border:none !important; border-radius:12px !important; color:#0d1117 !important; font-weight:800 !important; font-size:14px !important; width:100% !important; padding:0.65em !important; }
-  .stButton > button:hover { opacity:.9; }
+  
+  /* Estilos específicos para cada botón */
+  .btn-principal > button { background:linear-gradient(90deg,#00e676,#00b4d8) !important; border:none !important; border-radius:12px !important; color:#0d1117 !important; font-weight:800 !important; font-size:13px !important; width:100% !important; padding:0.6em !important; }
+  .btn-avanzado > button { background:linear-gradient(90deg,#f59e0b,#ec4899) !important; border:none !important; border-radius:12px !important; color:#0d1117 !important; font-weight:800 !important; font-size:13px !important; width:100% !important; padding:0.6em !important; }
+  
   [data-testid="stCheckbox"] { background: #161c2b; padding: 10px 14px; border-radius: 8px; border: 1px solid #2d3748; margin-bottom: 5px; }
   [data-testid="stCheckbox"] label p { color: #e1e1e1 !important; font-size: 14px !important; }
   hr { border-color:#2d3748 !important; }
@@ -250,7 +253,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 if not online:
-    st.warning("⚠️ Asegúrate de cargar tus claves (GEMINI_API, ODDS_API, SPORTS_API) en los secretos de tu entorno (ej. Streamlit Cloud).")
+    st.warning("⚠️ Asegúrate de cargar tus claves (GEMINI_API, ODDS_API, SPORTS_API) en los secretos de tu entorno.")
 
 # ─── SELECCIÓN DE LIGA Y CARGA DE PARTIDOS ─────────────────────────────
 st.markdown("<p style='color:#8b949e; font-size:12px; font-weight:600; margin-bottom:5px;'>🏆 Competición</p>", unsafe_allow_html=True)
@@ -281,95 +284,124 @@ if upcoming_matches:
     for i, p in enumerate(selected_matches):
         st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
 
-# ─── ANÁLISIS IA + CRUCE DE DATOS ─────────────────────────────
+# ─── BOTONES DIVIDIDOS PARA EL ANÁLISIS ─────────────────────────────
 st.markdown("---")
 
-if st.button("🚀 Generar Análisis Cuantitativo"):
-    if not online: st.error("❌ Faltan Claves API en los secretos del sistema.")
+col1, col2 = st.columns(2)
+with col1:
+    st.markdown('<div class="btn-principal">', unsafe_allow_html=True)
+    btn_principal = st.button("📊 Análisis 1X2 y Goles")
+    st.markdown('</div>', unsafe_allow_html=True)
+with col2:
+    st.markdown('<div class="btn-avanzado">', unsafe_allow_html=True)
+    btn_avanzado = st.button("🔥 Stats y Jugadores")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# Lógica compartida de recolección de datos
+def obtener_datos_preparados():
+    fecha_req = fmt_fecha(selected_matches[0]['commence_time'], simple=True)
+    calendario_dia = obtener_calendario_apisports(fecha_req, api_sports)
+    
+    formatted = []
+    for p in selected_matches:
+        h2h, t_over, t_under = extraer_odds(p)
+        stats_avanzadas = cruzar_datos(p, calendario_dia, api_sports)
+        formatted.append({
+            "local": TRADUCCIONES.get(p['home_team'], p['home_team']),
+            "visita": TRADUCCIONES.get(p['away_team'], p['away_team']),
+            "cuotas": {"1X2": h2h, "Goles_Over": t_over, "Goles_Under": t_under},
+            "datos_tacticos_apisports": stats_avanzadas
+        })
+    return formatted
+
+# ─── EJECUCIÓN BOTÓN 1: PRINCIPAL ───
+if btn_principal:
+    if not online: st.error("❌ Faltan Claves API.")
     elif not selected_matches: st.error("❌ Selecciona al menos un partido.")
     else:
-        # 1. Obtener la fecha del primer partido para API-Sports
-        fecha_req = fmt_fecha(selected_matches[0]['commence_time'], simple=True)
-        
-        with st.spinner("📡 Cruzando datos tácticos en vivo con API-Sports..."):
-            calendario_dia = obtener_calendario_apisports(fecha_req, api_sports)
+        with st.spinner("📡 Obteniendo datos tácticos..."):
+            formatted_matches = obtener_datos_preparados()
             
-            formatted_matches = []
-            for p in selected_matches:
-                h2h, t_over, t_under = extraer_odds(p)
-                stats_avanzadas = cruzar_datos(p, calendario_dia, api_sports)
-                
-                formatted_matches.append({
-                    "local": TRADUCCIONES.get(p['home_team'], p['home_team']),
-                    "visita": TRADUCCIONES.get(p['away_team'], p['away_team']),
-                    "cuotas": {"1X2": h2h, "Goles_Over": t_over, "Goles_Under": t_under},
-                    "datos_tacticos_apisports": stats_avanzadas
-                })
-        
         prompt = f"""
-Actúa como un Analista Cuantitativo Deportivo (Quant).
-Cruza las cuotas de The Odds API con los datos tácticos de API-Sports para encontrar Valor Esperado Positivo (+EV).
-
-Competición: {liga_label}
-Datos de los partidos:
-{json.dumps(formatted_matches)}
-
-INSTRUCCIONES CLAVE:
-1. Analiza ritmo de juego y remates para deducir mercado de Córners y Tiros.
-2. Evalúa agresividad para proponer línea de Tarjetas.
-3. Evalúa mercado de Jugadores buscando probabilidad alta (Ej: Erling Haaland anota, Harry Kane más 1.5 remates a puerta).
-4. Elige un ganador claro con Hándicap si aplica.
+Actúa como Analista Cuantitativo Deportivo. Evalúa SOLAMENTE el ganador y los goles basándote en estos datos: {json.dumps(formatted_matches)}
 
 Responde ÚNICAMENTE con este JSON para cada partido:
 {{
-  "partido": "Nombre Local vs Nombre Visita",
-  "analisis_general": "Breve tesis táctica en 3 líneas.",
-  "mercados": {{
-    "principal": {{ "1x2_o_doble": "Pronóstico", "handicap": "Línea sugerida y cuota est." }},
-    "goles": {{ "linea_exacta": "Over/Under X.5", "gol_primer_tiempo": "Sí/No" }},
-    "estadisticas": {{ "corners": "Over X.5", "tarjetas": "Over/Under", "remates_puerta": "Línea proyectada" }},
-    "jugador_estrella": {{ "pick": "Nombre Jugador - Mercado", "justificacion": "Por qué tiene valor" }}
-  }}
+  "partido": "Local vs Visita",
+  "analisis_general": "Tesis táctica en 2 líneas.",
+  "mercado_principal": {{ "1x2_o_doble": "Pronóstico", "handicap": "Línea sugerida" }},
+  "mercado_goles": {{ "linea_exacta": "Over/Under", "gol_primer_tiempo": "Sí/No" }}
 }}
 """
-        with st.spinner("🧠 El algoritmo de Gemini está procesando los vectores tácticos..."):
+        with st.spinner("🧠 Procesando Ganador y Goles (Modelo Rápido)..."):
             try:
                 client = genai.Client(api_key=api_gemini)
                 resp = client.models.generate_content(
-                    model="gemini-2.0-flash", # <--- MODELO ACTUALIZADO AQUÍ
+                    model="gemini-1.5-flash", # Modelo más permisivo con los límites
                     contents=prompt,
-                    config=types.GenerateContentConfig(
-                        max_output_tokens=4000, 
-                        temperature=0.2,
-                        response_mime_type="application/json"
-                    )
+                    config=types.GenerateContentConfig(temperature=0.2, response_mime_type="application/json")
                 )
-                
-                # Transformar JSON a UI
                 datos_ia = json.loads(resp.text)
-                if isinstance(datos_ia, dict): datos_ia = [datos_ia] # Por si devuelve 1 solo objeto
+                if isinstance(datos_ia, dict): datos_ia = [datos_ia]
                 
                 for analisis in datos_ia:
                     st.markdown(f"### 🛡️ {analisis.get('partido', 'Pronóstico')}")
                     st.markdown(f"<div style='background:#1e293b; padding:12px; border-left:4px solid #8b5cf6; border-radius:6px; color:#e1e1e1; font-size:13px; margin-bottom:16px;'><i>{analisis.get('analisis_general', '')}</i></div>", unsafe_allow_html=True)
                     
-                    m = analisis.get('mercados', {})
-                    c1, c2 = st.columns(2)
+                    st.markdown("<h5 style='color:#00e676;'>🏆 Mercado Principal</h5>", unsafe_allow_html=True)
+                    st.info(f"**Resultado:** {analisis.get('mercado_principal', {}).get('1x2_o_doble', 'N/A')} | **Hándicap:** {analisis.get('mercado_principal', {}).get('handicap', 'N/A')}")
                     
-                    with c1:
-                        st.markdown("<h5 style='color:#00e676;'>🏆 Mercado Principal</h5>", unsafe_allow_html=True)
-                        st.info(f"**Resultado:** {m.get('principal', {}).get('1x2_o_doble', 'N/A')}\n\n**Hándicap:** {m.get('principal', {}).get('handicap', 'N/A')}")
-                        
-                        st.markdown("<h5 style='color:#00b4d8;'>⚽ Mercado Goles</h5>", unsafe_allow_html=True)
-                        st.success(f"**Línea:** {m.get('goles', {}).get('linea_exacta', 'N/A')}\n\n**Gol 1T:** {m.get('goles', {}).get('gol_primer_tiempo', 'N/A')}")
-                        
-                    with c2:
-                        st.markdown("<h5 style='color:#f59e0b;'>📊 Mercado Estadísticas</h5>", unsafe_allow_html=True)
-                        st.warning(f"**Córners:** {m.get('estadisticas', {}).get('corners', 'N/A')}\n\n**Tarjetas:** {m.get('estadisticas', {}).get('tarjetas', 'N/A')}\n\n**Remates:** {m.get('estadisticas', {}).get('remates_puerta', 'N/A')}")
-                        
-                        st.markdown("<h5 style='color:#ec4899;'>🔥 Player Props</h5>", unsafe_allow_html=True)
-                        st.error(f"**Pick:** {m.get('jugador_estrella', {}).get('pick', 'N/A')}\n\n*{m.get('jugador_estrella', {}).get('justificacion', 'N/A')}*")
-                    
+                    st.markdown("<h5 style='color:#00b4d8;'>⚽ Mercado Goles</h5>", unsafe_allow_html=True)
+                    st.success(f"**Línea:** {analisis.get('mercado_goles', {}).get('linea_exacta', 'N/A')} | **Gol 1T:** {analisis.get('mercado_goles', {}).get('gol_primer_tiempo', 'N/A')}")
                     st.markdown("---")
             except Exception as e:
-                st.error(f"Error procesando el análisis: {str(e)}")
+                error_str = str(e)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    st.warning("⏳ Has alcanzado el límite gratuito de Gemini. Espera 1 minuto y vuelve a intentar.")
+                else:
+                    st.error(f"❌ Error: {error_str}")
+
+# ─── EJECUCIÓN BOTÓN 2: AVANZADO ───
+if btn_avanzado:
+    if not online: st.error("❌ Faltan Claves API.")
+    elif not selected_matches: st.error("❌ Selecciona al menos un partido.")
+    else:
+        with st.spinner("📡 Obteniendo datos tácticos..."):
+            formatted_matches = obtener_datos_preparados()
+            
+        prompt = f"""
+Actúa como Analista Cuantitativo Deportivo. Evalúa SOLAMENTE estadísticas secundarias (Córners, Tarjetas, Remates) y Props de Jugadores basándote en estos datos: {json.dumps(formatted_matches)}
+
+Responde ÚNICAMENTE con este JSON para cada partido:
+{{
+  "partido": "Local vs Visita",
+  "mercado_estadisticas": {{ "corners": "Línea Over/Under", "tarjetas": "Línea Over/Under", "remates_puerta": "Línea proyectada" }},
+  "jugador_estrella": {{ "pick": "Jugador - Mercado", "justificacion": "Breve motivo estadístico" }}
+}}
+"""
+        with st.spinner("🧠 Procesando Mercados Secundarios..."):
+            try:
+                client = genai.Client(api_key=api_gemini)
+                resp = client.models.generate_content(
+                    model="gemini-1.5-flash",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(temperature=0.2, response_mime_type="application/json")
+                )
+                datos_ia = json.loads(resp.text)
+                if isinstance(datos_ia, dict): datos_ia = [datos_ia]
+                
+                for analisis in datos_ia:
+                    st.markdown(f"### 🔥 Stats: {analisis.get('partido', 'Pronóstico')}")
+                    
+                    st.markdown("<h5 style='color:#f59e0b;'>📊 Estadísticas del Partido</h5>", unsafe_allow_html=True)
+                    st.warning(f"**Córners:** {analisis.get('mercado_estadisticas', {}).get('corners', 'N/A')}\n\n**Tarjetas:** {analisis.get('mercado_estadisticas', {}).get('tarjetas', 'N/A')}\n\n**Remates a Puerta:** {analisis.get('mercado_estadisticas', {}).get('remates_puerta', 'N/A')}")
+                    
+                    st.markdown("<h5 style='color:#ec4899;'>🎯 Prop de Jugador</h5>", unsafe_allow_html=True)
+                    st.error(f"**Pick:** {analisis.get('jugador_estrella', {}).get('pick', 'N/A')}\n\n*{analisis.get('jugador_estrella', {}).get('justificacion', 'N/A')}*")
+                    st.markdown("---")
+            except Exception as e:
+                error_str = str(e)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    st.warning("⏳ Has alcanzado el límite gratuito de Gemini. Espera 1 minuto y vuelve a intentar.")
+                else:
+                    st.error(f"❌ Error: {error_str}")
