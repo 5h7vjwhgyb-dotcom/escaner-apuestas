@@ -6,34 +6,50 @@ from datetime import datetime
 import math
 
 # ═══════════════════════════════════════════════
-# BANDERAS Y LIGAS
+# TRADUCCIONES Y BANDERAS
 # ═══════════════════════════════════════════════
+TRADUCCIONES = {
+    "South Korea": "Corea del Sur", "Czech Republic": "República Checa",
+    "Czechia": "República Checa", "Bosnia and Herzegovina": "Bosnia y Herz.",
+    "Bosnia & Herzegovina": "Bosnia y Herz.", "Canada": "Canadá",
+    "USA": "Estados Unidos", "United States": "Estados Unidos",
+    "Switzerland": "Suiza", "Turkey": "Turquía", "Turkiye": "Turquía",
+    "Germany": "Alemania", "Ivory Coast": "Costa de Marfil",
+    "Brazil": "Brasil", "Morocco": "Marruecos", "Haiti": "Haití",
+    "Scotland": "Escocia", "Spain": "España", "Cabo Verde": "Cabo Verde",
+    "Saudi Arabia": "Arabia Saudita", "Croatia": "Croacia",
+    "New Zealand": "Nueva Zelanda", "France": "Francia", "Japan": "Japón",
+    "DR Congo": "RD Congo", "Congo DR": "RD Congo", "Uzbekistan": "Uzbekistán",
+    "England": "Inglaterra", "Netherlands": "Países Bajos", "Belgium": "Bélgica",
+    "Cameroon": "Camerún", "Peru": "Perú", "Iran": "Irán",
+    "Denmark": "Dinamarca", "Poland": "Polonia", "Sweden": "Suecia",
+    "Norway": "Noruega", "Ukraine": "Ucrania", "Wales": "Gales",
+    "Algeria": "Argelia", "Egypt": "Egipto", "Tunisia": "Túnez",
+    "Panama": "Panamá", "Jamaica": "Jamaica", "Iraq": "Irak",
+    "Romania": "Rumania", "Hungary": "Hungría", "Slovakia": "Eslovaquia",
+    "Slovenia": "Eslovenia", "Ireland": "Irlanda", "New Caledonia": "N. Caledonia"
+}
+
 BANDERAS = {
-    "Mexico":"🇲🇽","South Africa":"🇿🇦","South Korea":"🇰🇷",
+    "Mexico":"🇲🇽","South Africa":"🇿🇦","South Korea":"🇰🇷", "Korea Republic":"🇰🇷",
     "Czechia":"🇨🇿","Czech Republic":"🇨🇿","USA":"🇺🇸",
     "United States":"🇺🇸","Paraguay":"🇵🇾","Canada":"🇨🇦",
-    "Bosnia and Herzegovina":"🇧🇦","Qatar":"🇶🇦","Switzerland":"🇨🇭",
-    "Australia":"🇦🇺","Turkey":"🇹🇷","Turkiye":"🇹🇷",
-    "Germany":"🇩🇪","Curacao":"🇨🇼","Ivory Coast":"🇨🇮",
-    "Ecuador":"🇪🇨","Brazil":"🇧🇷","Morocco":"🇲🇦","Haiti":"🇭🇹",
-    "Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Spain":"🇪🇸","Cabo Verde":"🇨🇻",
-    "Saudi Arabia":"🇸🇦","Argentina":"🇦🇷","Croatia":"🇭🇷",
-    "New Zealand":"🇳🇿","Senegal":"🇸🇳","France":"🇫🇷",
-    "Japan":"🇯🇵","Colombia":"🇨🇴","Portugal":"🇵🇹",
-    "DR Congo":"🇨🇩","Congo DR":"🇨🇩","Uzbekistan":"🇺🇿",
-    "England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Netherlands":"🇳🇱","Belgium":"🇧🇪",
-    "Nigeria":"🇳🇬","Cameroon":"🇨🇲","Ghana":"🇬🇭",
-    "Uruguay":"🇺🇾","Chile":"🇨🇱","Peru":"🇵🇪",
-    "Venezuela":"🇻🇪","Iran":"🇮🇷","Serbia":"🇷🇸",
-    "Denmark":"🇩🇰","Poland":"🇵🇱","Sweden":"🇸🇪",
-    "Norway":"🇳🇴","Ukraine":"🇺🇦","Wales":"🏴󠁧󠁢󠁷󠁬󠁳󠁿",
-    "Algeria":"🇩🇿","Egypt":"🇪🇬","Tunisia":"🇹🇳",
-    "Costa Rica":"🇨🇷","Panama":"🇵🇦","Honduras":"🇭🇳",
-    "Jamaica":"🇯🇲","UAE":"🇦🇪","Iraq":"🇮🇶",
-    "China":"🇨🇳","Indonesia":"🇮🇩","Greece":"🇬🇷",
-    "Romania":"🇷🇴","Hungary":"🇭🇺","Slovakia":"🇸🇰",
-    "Slovenia":"🇸🇮","Austria":"🇦🇹","Finland":"🇫🇮",
-    "Ireland":"🇮🇪","New Caledonia":"🇳🇨",
+    "Bosnia and Herzegovina":"🇧🇦", "Bosnia & Herzegovina":"🇧🇦", "Qatar":"🇶🇦",
+    "Switzerland":"🇨🇭","Australia":"🇦🇺","Turkey":"🇹🇷","Turkiye":"🇹🇷",
+    "Germany":"🇩🇪","Curacao":"🇨🇼","Ivory Coast":"🇨🇮","Ecuador":"🇪🇨",
+    "Brazil":"🇧🇷","Morocco":"🇲🇦","Haiti":"🇭🇹","Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+    "Spain":"🇪🇸","Cabo Verde":"🇨🇻","Saudi Arabia":"🇸🇦","Argentina":"🇦🇷",
+    "Croatia":"🇭🇷","New Zealand":"🇳🇿","Senegal":"🇸🇳","France":"🇫🇷",
+    "Japan":"🇯🇵","Colombia":"🇨🇴","Portugal":"🇵🇹","DR Congo":"🇨🇩",
+    "Congo DR":"🇨🇩","Uzbekistan":"🇺🇿","England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Netherlands":"🇳🇱",
+    "Belgium":"🇧🇪","Nigeria":"🇳🇬","Cameroon":"🇨🇲","Ghana":"🇬🇭",
+    "Uruguay":"🇺🇾","Chile":"🇨🇱","Peru":"🇵🇪","Venezuela":"🇻🇪","Iran":"🇮🇷",
+    "Serbia":"🇷🇸","Denmark":"🇩🇰","Poland":"🇵🇱","Sweden":"🇸🇪","Norway":"🇳🇴",
+    "Ukraine":"🇺🇦","Wales":"🏴󠁧󠁢󠁷󠁬󠁳󠁿","Algeria":"🇩🇿","Egypt":"🇪🇬",
+    "Tunisia":"🇹🇳","Costa Rica":"🇨🇷","Panama":"🇵🇦","Honduras":"🇭🇳",
+    "Jamaica":"🇯🇲","UAE":"🇦🇪","Iraq":"🇮🇶","China":"🇨🇳","Indonesia":"🇮🇩",
+    "Greece":"🇬🇷","Romania":"🇷🇴","Hungary":"🇭🇺","Slovakia":"🇸🇰",
+    "Slovenia":"🇸🇮","Austria":"🇦🇹","Finland":"🇫🇮","Ireland":"🇮🇪","New Caledonia":"🇳🇨",
 }
 
 LIGAS = {
@@ -51,7 +67,6 @@ LIGAS = {
 # ═══════════════════════════════════════════════
 # FUNCIÓN CON CACHÉ PARA LA API DE ODDS
 # ═══════════════════════════════════════════════
-# ttl=43200 significa que el caché dura 12 horas (en segundos)
 @st.cache_data(ttl=43200, show_spinner=False)
 def obtener_partidos_api(liga, api_key):
     url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
@@ -67,13 +82,6 @@ def obtener_partidos_api(liga, api_key):
 # HELPERS
 # ═══════════════════════════════════════════════
 def flag(team): return BANDERAS.get(team, "🏳️")
-
-def estrellas(prob):
-    if prob >= 62: return "★★★★★"
-    if prob >= 52: return "★★★★☆"
-    if prob >= 35: return "★★★☆☆"
-    if prob >= 22: return "★★☆☆☆"
-    return "★☆☆☆☆"
 
 def extraer_odds(partido):
     home = partido.get("home_team","")
@@ -110,74 +118,105 @@ def calcular_probs(h2h):
     away_p = 100 - home_p - draw_p
     return {"home": home_p, "draw": draw_p, "away": away_p}
 
-def mejor_apuesta(h2h, probs, t_over, t_under):
+def mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es):
     cands = []
     for pt in sorted(t_over.keys()):
         if pt in t_under:
             total = (1/t_over[pt]) + (1/t_under[pt])
             cands.append({"label": f"Más de {pt} Goles",  "odds": t_over[pt],  "prob": round((1/t_over[pt])/total*100)})
             cands.append({"label": f"Menos de {pt} Goles","odds": t_under[pt], "prob": round((1/t_under[pt])/total*100)})
-    for k, lbl in [("home","Victoria Local"),("draw","Empate"),("away","Victoria Visitante")]:
-        if h2h[k]: cands.append({"label":lbl,"odds":h2h[k],"prob":probs[k]})
+    
+    if h2h["home"]: cands.append({"label":f"Gana {home_es}","odds":h2h["home"],"prob":probs["home"]})
+    if h2h["draw"]: cands.append({"label":"Empate","odds":h2h["draw"],"prob":probs["draw"]})
+    if h2h["away"]: cands.append({"label":f"Gana {away_es}","odds":h2h["away"],"prob":probs["away"]})
+    
     return max(cands, key=lambda x: x["prob"]) if cands else None
 
 def fmt_fecha(iso, simple=False):
     try:
         dt = datetime.fromisoformat(iso.replace("Z","+00:00"))
         if simple: return dt.strftime('%Y-%m-%d')
-        dias = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
+        dias = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"]
         meses = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
-        return f"{dias[dt.weekday()]} {dt.day} {meses[dt.month]} · {dt.strftime('%H:%M')} UTC"
+        return f"{dias[dt.isoweekday()%7]} {dt.day} {meses[dt.month]} · {dt.strftime('%H:%M')} UTC"
     except: return "Fecha no disponible"
 
 def render_simplified_card(partido, idx=1):
-    home  = partido.get("home_team","Local")
-    away  = partido.get("away_team","Visita")
+    home_en = partido.get("home_team","Local")
+    away_en = partido.get("away_team","Visita")
+    
+    # Traducciones al Español
+    home_es = TRADUCCIONES.get(home_en, home_en)
+    away_es = TRADUCCIONES.get(away_en, away_en)
+    
     fecha = fmt_fecha(partido.get("commence_time",""))
     h2h, t_over, t_under = extraer_odds(partido)
     probs = calcular_probs(h2h)
+    best = mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es)
     
     hp, dp, ap = probs["home"], probs["draw"], probs["away"]
+    
+    # Formateo de Cuotas (Odds) para la UI
+    odd_h = f"@{h2h['home']}" if h2h.get('home') else "N/A"
+    odd_d = f"@{h2h['draw']}" if h2h.get('draw') else "N/A"
+    odd_a = f"@{h2h['away']}" if h2h.get('away') else "N/A"
+
+    # HTML para la Mejor Apuesta recomendada
+    best_bet_html = ""
+    if best:
+        best_bet_html = f"""
+        <div style="background:#00e67615; color:#00e676; border:1px solid #00e67640; 
+                    padding:6px; border-radius:8px; font-size:12px; font-weight:700; 
+                    text-align:center; margin-top:12px; letter-spacing:0.3px;">
+            🔥 Destacada: {best['label']} ({best['odds']})
+        </div>
+        """
 
     return f"""
-<div style="background:#161c2b;border-radius:12px;padding:12px;border:1px solid #2a3349;
-            margin-bottom:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-    <span style="color:#8b949e;font-size:11px;">📅 {fecha}</span>
-    <span style="background:#2d3748;color:#e1e1e1;font-size:9px;padding:2px 7px;border-radius:20px;font-weight:700;">M {idx}</span>
+<div style="background:#161c2b;border-radius:12px;padding:14px;border:1px solid #2a3349;
+            margin-bottom:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <span style="color:#8b949e;font-size:12px;font-weight:600;">📅 {fecha}</span>
+    <span style="background:#2d3748;color:#e1e1e1;font-size:10px;padding:3px 8px;border-radius:20px;font-weight:800;">M {idx}</span>
   </div>
 
-  <div style="display:flex;align-items:center;margin-bottom:10px;">
-    <div style="flex:2;text-align:center;">
-      <div style="font-size:32px;line-height:1.1;">{flag(home)}</div>
-      <div style="color:#e1e1e1;font-weight:700;font-size:12px;margin-top:4px;">{home}</div>
-      <div style="color:#f59e0b;font-size:10px;">{estrellas(hp)}</div>
-    </div>
+  <div style="display:flex;align-items:center;margin-bottom:14px;">
     <div style="flex:1;text-align:center;">
-      <div style="color:#6b7280;font-size:16px;font-weight:900;">— : —</div>
+      <div style="font-size:36px;line-height:1.1;margin-bottom:4px;">{flag(home_en)}</div>
+      <div style="color:#e1e1e1;font-weight:700;font-size:13px;">{home_es}</div>
+      <div style="color:#00e676;font-size:12px;font-weight:800;margin-top:2px;">{odd_h}</div>
     </div>
-    <div style="flex:2;text-align:center;">
-      <div style="font-size:32px;line-height:1.1;">{flag(away)}</div>
-      <div style="color:#e1e1e1;font-weight:700;font-size:12px;margin-top:4px;">{away}</div>
-      <div style="color:#f59e0b;font-size:10px;">{estrellas(ap)}</div>
+    
+    <div style="flex:1;text-align:center;">
+      <div style="color:#6b7280;font-size:13px;font-weight:900;letter-spacing:1px;margin-bottom:2px;">VS</div>
+      <div style="color:#8b949e;font-size:10px;font-weight:600;">EMP</div>
+      <div style="color:#e1e1e1;font-size:12px;font-weight:700;">{odd_d}</div>
+    </div>
+    
+    <div style="flex:1;text-align:center;">
+      <div style="font-size:36px;line-height:1.1;margin-bottom:4px;">{flag(away_en)}</div>
+      <div style="color:#e1e1e1;font-weight:700;font-size:13px;">{away_es}</div>
+      <div style="color:#00e676;font-size:12px;font-weight:800;margin-top:2px;">{odd_a}</div>
     </div>
   </div>
 
-  <div style="display:flex;border-radius:6px;overflow:hidden;height:18px;">
+  <div style="display:flex;border-radius:8px;overflow:hidden;height:22px;box-shadow:inset 0 1px 3px rgba(0,0,0,0.3);">
     <div style="background:#22c55e;width:{hp}%;display:flex;align-items:center;
-                justify-content:center;color:white;font-size:10px;font-weight:700;min-width:18px;">{hp}%</div>
+                justify-content:center;color:white;font-size:11px;font-weight:800;min-width:24px;">{hp}%</div>
     <div style="background:#4b5563;width:{dp}%;display:flex;align-items:center;
-                justify-content:center;color:#ddd;font-size:8px;min-width:18px;">EMP</div>
+                justify-content:center;color:#e1e1e1;font-size:10px;font-weight:600;min-width:24px;">{dp}%</div>
     <div style="background:#ef4444;width:{ap}%;display:flex;align-items:center;
-                justify-content:center;color:white;font-size:10px;font-weight:700;min-width:18px;">{ap}%</div>
+                justify-content:center;color:white;font-size:11px;font-weight:800;min-width:24px;">{ap}%</div>
   </div>
+  
+  {best_bet_html}
 </div>"""
 
 # ═══════════════════════════════════════════════════════════════
 # APP
 # ═══════════════════════════════════════════════════════════════
-st.set_page_config(page_title="BET⚡COMBINADAS", layout="centered",
-                   initial_sidebar_state="collapsed")
+st.set_page_config(page_title="BET⚡COMBINADAS", layout="centered", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
@@ -189,19 +228,17 @@ st.markdown("""
   .block-container { padding-top:0.8rem !important; max-width:520px !important; }
 
   label, .stTextInput label, .stTextArea label,
-  .stSelectbox label { color:#8b949e !important; font-size:12px !important; }
+  .stSelectbox label { color:#8b949e !important; font-size:12px !important; font-weight:600 !important; }
   .stTextInput input, .stTextArea textarea {
     background:#161c2b !important; color:#e1e1e1 !important;
-    border:1px solid #2d3748 !important; border-radius:10px !important;
-    font-size:13px !important;
+    border:1px solid #2d3748 !important; border-radius:10px !important; font-size:13px !important;
   }
   [data-testid="stSelectbox"] > div > div {
     background:#161c2b !important; border:1px solid #2d3748 !important;
     border-radius:10px !important; color:#e1e1e1 !important;
   }
   [data-testid="stExpander"] {
-    background:#161c2b !important; border:1px solid #2d3748 !important;
-    border-radius:12px !important;
+    background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:12px !important;
   }
   [data-testid="stExpanderToggleIcon"] svg { fill:#00e676 !important; }
 
@@ -209,25 +246,20 @@ st.markdown("""
     background:linear-gradient(90deg,#00e676,#00b4d8) !important;
     border:none !important; border-radius:12px !important;
     color:#0d1117 !important; font-weight:800 !important;
-    font-size:14px !important; width:100% !important;
-    padding:0.65em !important; letter-spacing:.4px !important;
+    font-size:14px !important; width:100% !important; padding:0.65em !important;
   }
   .stButton > button:hover { opacity:.9; }
   
-  /* Estilo especial para el botón de actualización pequeño */
   .btn-actualizar > button {
-    background:#2d3748 !important;
-    color:#e1e1e1 !important;
-    font-size:12px !important;
-    margin-top: 28px !important; /* Alinear con el selectbox */
+    background:#2d3748 !important; color:#e1e1e1 !important;
+    font-size:12px !important; margin-top: 28px !important;
   }
 
   [data-testid="stAlert"] { border-radius:12px !important; }
   hr { border-color:#2d3748 !important; }
 
   .result-card {
-    background:#161c2b; border-left:4px solid #00e676;
-    border-radius:12px; padding:16px; margin-bottom:14px;
+    background:#161c2b; border-left:4px solid #00e676; border-radius:12px; padding:16px; margin-bottom:14px;
     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
     color:#e1e1e1; font-size:13px; line-height:1.6;
   }
@@ -255,28 +287,24 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ─── CONFIGURACIÓN ───────────────────────────────────────────────
-with st.expander("⚙️  Configuración — Claves API", expanded=not online):
+with st.expander("⚙️ Configuración — Claves API", expanded=not online):
     c1, c2 = st.columns(2)
     with c1:
-        api_gemini = st.text_input("Gemini API Key", type="password",
-                                   help="aistudio.google.com", key="_gem")
+        api_gemini = st.text_input("Gemini API Key", type="password", help="aistudio.google.com", key="_gem")
     with c2:
-        api_odds = st.text_input("Odds API Key", type="password",
-                                 help="the-odds-api.com", key="_odd")
-    st.caption("💡 Tier gratuito Odds API: 500 peticiones/mes · Gemini 3.5 Flash")
+        api_odds = st.text_input("Odds API Key", type="password", help="the-odds-api.com", key="_odd")
 
 # ─── SELECCIÓN DE LIGA Y BOTÓN ACTUALIZAR ────────────────────────
 col_liga, col_btn = st.columns([3, 1])
 
 with col_liga:
-    liga_label = st.selectbox("🏆 Liga para buscar próximos partidos", list(LIGAS.keys()), index=0)
+    liga_label = st.selectbox("🏆 Liga para analizar", list(LIGAS.keys()), index=0)
     liga = LIGAS[liga_label]
 
 with col_btn:
     st.markdown('<div class="btn-actualizar">', unsafe_allow_html=True)
     if st.button("🔄 Actualizar", help="Forzar descarga desde la API (gasta 1 petición)"):
         if api_odds:
-            # Aquí limpiamos la memoria RAM solo para esta liga y recargamos
             obtener_partidos_api.clear(liga, api_odds)
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
@@ -287,14 +315,16 @@ upcoming_matches_dict = {}
 restantes = "?"
 
 if api_odds:
-    with st.spinner("🚀 Consultando datos (caché o API)..."):
+    with st.spinner("🚀 Consultando cuotas..."):
         resp, restantes = obtener_partidos_api(liga, api_odds)
         
         if isinstance(resp, list) and len(resp) > 0:
             sorted_resp = sorted(resp, key=lambda x: x.get('commence_time', ''))
             upcoming_matches = sorted_resp[:6]
             for p in upcoming_matches:
-                name = f"{fmt_fecha(p['commence_time'], simple=True)}: {p['home_team']} vs {p['away_team']}"
+                home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
+                away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
+                name = f"{fmt_fecha(p['commence_time'], simple=True)}: {home_es} vs {away_es}"
                 upcoming_matches_dict[name] = p
         elif isinstance(resp, dict) and resp.get("message"):
              st.error(f"❌ Odds API Error: {resp['message']}")
@@ -310,21 +340,20 @@ if upcoming_matches_dict:
     selected_match_names = st.multiselect(
         "Selecciona hasta 6 partidos",
         options=list(upcoming_matches_dict.keys()),
-        default=None,
-        help="Los datos se están cargando desde la RAM. Seleccionar aquí no consume API."
+        default=None
     )
     
     selected_matches = [upcoming_matches_dict[name] for name in selected_match_names]
 
     if selected_matches:
-        st.markdown("### 👀 Vista previa de selección")
+        st.markdown("### 📊 Análisis del Mercado")
         for i, p in enumerate(selected_matches):
             st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
             
         st.markdown(
             f'<div style="color:#6b7280;font-size:10px;text-align:right;'
-            f'margin-top:-10px;margin-bottom:10px;">'
-            f'📊 Peticiones Odds restantes (Última llamada): <strong style="color:#e1e1e1;">{restantes}</strong>/500</div>',
+            f'margin-top:-8px;margin-bottom:10px;">'
+            f'⚡ Peticiones restantes: <strong style="color:#e1e1e1;">{restantes}</strong>/500</div>',
             unsafe_allow_html=True
         )
 else:
@@ -334,25 +363,27 @@ else:
 # ─── CONTEXTO + ANÁLISIS IA ────────────────────────────────────
 st.markdown("---")
 contexto = st.text_area(
-    "📋 Contexto adicional (opcional)",
-    placeholder="Ej: El equipo local llega con su estrella lesionada, habrá mucha lluvia, etc."
+    "📋 Contexto adicional para la IA (opcional)",
+    placeholder="Ej: El local necesita ganar para clasificar, el árbitro saca muchas tarjetas..."
 )
 
 if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
     if not api_gemini:
         st.error("❌ Falta la Gemini API Key. Ponla en Configuración.")
     elif not selected_matches:
-        st.error("❌ Selecciona al menos un partido de la lista de arriba primero.")
+        st.error("❌ Selecciona al menos un partido primero.")
     else:
         formatted_matches = []
         for p in selected_matches:
             h2h, t_over, t_under = extraer_odds(p)
             probs = calcular_probs(h2h)
-            best = mejor_apuesta(h2h, probs, t_over, t_under)
+            home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
+            away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
+            best = mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es)
             
             p_data = {
-                "local": p['home_team'],
-                "visita": p['away_team'],
+                "local": home_es,
+                "visita": away_es,
                 "fecha": fmt_fecha(p['commence_time'], simple=True),
                 "probabilidades": probs,
                 "mejor_apuesta_individual": best,
@@ -371,7 +402,7 @@ Datos de los partidos en formato JSON (cuotas reales extraídas de mercados 1X2 
 Contexto adicional del usuario: {contexto or 'Sin contexto adicional proporcionado.'}
 
 INSTRUCCIONES:
-Elige el mejor partido (o combina los mejores de la lista) para construir tus pronósticos. Usa las cuotas proporcionadas como base fundamental. Para las predicciones tácticas (córners, tarjetas, tiros), usa tu base de datos de conocimiento sobre cómo juegan estos equipos, ya que no están en el JSON.
+Elige el mejor partido (o combina los mejores de la lista) para construir tus pronósticos. Usa las cuotas proporcionadas como base fundamental. Para las predicciones tácticas (córners, tarjetas, tiros), usa tu base de datos de conocimiento sobre cómo juegan estos equipos.
 
 Antes de dar los pronósticos, haz una muy breve introducción (dos o tres líneas) sobre el contexto táctico de los partidos seleccionados basándote en los datos y tu conocimiento.
 
@@ -390,9 +421,9 @@ Luego, entrégame las tres apuestas siguiendo ESTRICTAMENTE esta estructura y fo
 * **Requisito:** Aunque es arriesgada por la cantidad de líneas, CADA SELECCIÓN debe tener una alta probabilidad matemática o táctica de ocurrir. Utiliza líneas bajas de córners, faltas, o mercados del JSON. Justifica cada punto de forma rápida y directa.
 
 Tono y Estilo:
-El lenguaje debe ser profesional, objetivo y persuasivo. No uses lenguaje excesivamente complejo, pero demuestra conocimiento profundo de estadísticas y roles tácticos. 
+El lenguaje debe ser profesional, objetivo y persuasivo. No uses lenguaje excesivamente complejo.
 """
-        with st.spinner("🔍 Analizando combinaciones con IA..."):
+        with st.spinner("🧠 Procesando datos matemáticos y tácticos..."):
             try:
                 client = genai.Client(api_key=api_gemini)
                 resp = client.models.generate_content(
@@ -401,7 +432,7 @@ El lenguaje debe ser profesional, objetivo y persuasivo. No uses lenguaje excesi
                     config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.2)
                 )
                 texto = resp.text
-                st.markdown("### 🔥 Resultados de tus Estrategias")
+                st.markdown("### 🔥 El Veredicto de la IA")
                 
                 for sec in texto.split("##"):
                     if sec.strip():
@@ -416,7 +447,7 @@ El lenguaje debe ser profesional, objetivo y persuasivo. No uses lenguaje excesi
                             f'</div>',
                             unsafe_allow_html=True
                         )
-                st.success("✅ Análisis completado.")
+                st.success("✅ Análisis completado con éxito.")
             except Exception as e:
                 st.error(f"❌ Error al consultar IA: {e}")
 
