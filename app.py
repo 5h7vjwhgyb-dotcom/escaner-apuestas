@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 import math
 import json
 
-# Manejo seguro de Zona Horaria de Chile (Soporta verano/invierno nativamente)
+# Manejo seguro de Zona Horaria de Chile
 try:
     from zoneinfo import ZoneInfo
     TZ_CHILE = ZoneInfo("America/Santiago")
@@ -73,11 +73,12 @@ LIGAS = {
 }
 
 # ═══════════════════════════════════════════════
-# FUNCIÓN CON CACHÉ DE DISCO PARA LA API DE ODDS
+# FUNCIONES CON CACHÉ DE DISCO (LAS 3 APIs)
 # ═══════════════════════════════════════════════
 @st.cache_data(ttl=21600, persist="disk", show_spinner=False)
 def obtener_partidos_api(liga, api_key):
-    mercados = "h2h,totals,spreads,btts,player_goalscorer,corners_match,cards_match"
+    # Se eliminan los mercados inválidos para planes gratuitos
+    mercados = "h2h,totals,spreads,btts"
     url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
            f"?apiKey={api_key}&regions=eu&markets={mercados}")
     try:
@@ -87,12 +88,60 @@ def obtener_partidos_api(liga, api_key):
     except Exception as e:
         return {"message": str(e)}, "?"
 
-# ═══════════════════════════════════════════════
-# FUNCIÓN CON CACHÉ DE DISCO PARA LA IA (GEMINI)
-# ═══════════════════════════════════════════════
+@st.cache_data(ttl=43200, persist="disk", show_spinner=False)
+def obtener_estadisticas_futbol(local_nombre, visita_nombre, api_key):
+    if not api_key:
+        return {"error": "Falta la Football API Key"}
+        
+    headers = { 'X-Auth-Token': api_key }
+    stats = {
+        "estado_forma_local": "Desconocido",
+        "estado_forma_visita": "Desconocido",
+        "posicion_local": "N/A",
+        "posicion_visita": "N/A"
+    }
+    
+    try:
+        url = "https://api.football-data.org/v4/matches?dateFrom={hoy}&dateTo={futuro}"
+        hoy_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        futuro_str = (datetime.now(timezone.utc) + timedelta(days=10)).strftime("%Y-%m-%d")
+        url_formateada = url.format(hoy=hoy_str, futuro=futuro_str)
+        
+        resp = requests.get(url_formateada, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return {"error": f"Error API Fútbol: {resp.status_code}"}
+            
+        data = resp.json()
+        
+        for match in data.get("matches", []):
+            home_api = match["homeTeam"]["shortName"] or match["homeTeam"]["name"]
+            away_api = match["awayTeam"]["shortName"] or match["awayTeam"]["name"]
+            
+            if (local_nombre.lower() in home_api.lower() or home_api.lower() in local_nombre.lower()) and \
+               (visita_nombre.lower() in away_api.lower() or away_api.lower() in visita_nombre.lower()):
+                
+                stats["estado_forma_local"] = match.get("homeTeam", {}).get("form", "N/A")
+                stats["estado_forma_visita"] = match.get("awayTeam", {}).get("form", "N/A")
+                
+                url_st = f"https://api.football-data.org/v4/competitions/{match['competition']['code']}/standings"
+                resp_st = requests.get(url_st, headers=headers, timeout=10)
+                
+                if resp_st.status_code == 200:
+                    standings_data = resp_st.json()
+                    for table in standings_data.get("standings", []):
+                        if table["type"] == "TOTAL":
+                            for team_row in table["table"]:
+                                if team_row["team"]["id"] == match["homeTeam"]["id"]:
+                                    stats["posicion_local"] = f"{team_row['position']}° ({team_row['points']} pts, GF:{team_row['goalsFor']} GC:{team_row['goalsAgainst']})"
+                                elif team_row["team"]["id"] == match["awayTeam"]["id"]:
+                                    stats["posicion_visita"] = f"{team_row['position']}° ({team_row['points']} pts, GF:{team_row['goalsFor']} GC:{team_row['goalsAgainst']})"
+                break 
+        return stats
+    except Exception as e:
+        return {"error": f"Fallo Football-Data: {str(e)}"}
+
 @st.cache_data(ttl=86400, persist="disk", show_spinner=False)
 def obtener_analisis_ia(api_key, prompt, id_combinacion):
-    # La variable id_combinacion actúa como "llave" única del caché
     client = genai.Client(api_key=api_key)
     resp = client.models.generate_content(
         model="gemini-2.0-flash", 
@@ -139,7 +188,6 @@ def extraer_odds(partido):
             else:
                 if mk_key not in otros_mercados:
                     otros_mercados[mk_key] = {}
-                
                 for o in mkt["outcomes"]:
                     nombre = o["name"]
                     punto = o.get("point", "")
@@ -169,37 +217,31 @@ def mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es):
             total = (1/t_over[pt]) + (1/t_under[pt])
             cands.append({"label": f"Más de {pt} Goles",  "odds": t_over[pt],  "prob": round((1/t_over[pt])/total*100)})
             cands.append({"label": f"Menos de {pt} Goles","odds": t_under[pt], "prob": round((1/t_under[pt])/total*100)})
-    
     if h2h["home"]: cands.append({"label":f"Gana {home_es}","odds":h2h["home"],"prob":probs["home"]})
     if h2h["draw"]: cands.append({"label":"Empate","odds":h2h["draw"],"prob":probs["draw"]})
     if h2h["away"]: cands.append({"label":f"Gana {away_es}","odds":h2h["away"],"prob":probs["away"]})
-        
     return max(cands, key=lambda x: x["prob"]) if cands else None
 
 def fmt_fecha(iso, simple=False):
     try:
         dt = datetime.fromisoformat(iso.replace("Z","+00:00"))
         dt_chile = dt.astimezone(TZ_CHILE)
-        
         if simple: return dt_chile.strftime('%Y-%m-%d')
         dias = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"]
         meses = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
-        
         return f"{dias[dt_chile.isoweekday()%7]} {dt_chile.day} {meses[dt_chile.month]} · {dt_chile.strftime('%H:%M')} (Chile)"
     except: return "Fecha no disponible · 00:00 (Chile)"
 
 def render_simplified_card(partido, idx=1):
     home_en = partido.get("home_team","Local")
     away_en = partido.get("away_team","Visita")
-    
     home_es = TRADUCCIONES.get(home_en, home_en)
     away_es = TRADUCCIONES.get(away_en, away_en)
-    
     fecha = fmt_fecha(partido.get("commence_time",""))
+    
     h2h, t_over, t_under, _ = extraer_odds(partido)
     probs = calcular_probs(h2h)
     best = mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es)
-    
     hp, dp, ap = probs["home"], probs["draw"], probs["away"]
     
     odd_h = f"@{h2h['home']}" if h2h.get('home') else "N/A"
@@ -254,64 +296,29 @@ st.markdown("""
   section[data-testid="stSidebar"]    { display:none; }
   .block-container { padding-top:0.8rem !important; max-width:520px !important; }
 
-  label, .stTextInput label, .stTextArea label { 
-      color:#8b949e !important; font-size:12px !important; font-weight:600 !important; 
-  }
-  .stTextInput input, .stTextArea textarea {
-    background:#161c2b !important; color:#e1e1e1 !important;
-    border:1px solid #2d3748 !important; border-radius:10px !important; font-size:13px !important;
-  }
-  [data-testid="stSelectbox"] > div > div {
-    background:#161c2b !important; border:1px solid #2d3748 !important;
-    border-radius:10px !important; color:#e1e1e1 !important;
-  }
-  [data-testid="stExpander"] {
-    background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:12px !important;
-  }
+  label, .stTextInput label, .stTextArea label { color:#8b949e !important; font-size:12px !important; font-weight:600 !important; }
+  .stTextInput input, .stTextArea textarea { background:#161c2b !important; color:#e1e1e1 !important; border:1px solid #2d3748 !important; border-radius:10px !important; font-size:13px !important; }
+  [data-testid="stSelectbox"] > div > div { background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:10px !important; color:#e1e1e1 !important; }
+  [data-testid="stExpander"] { background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:12px !important; }
   [data-testid="stExpanderToggleIcon"] svg { fill:#00e676 !important; }
 
-  .stButton > button {
-    background:linear-gradient(90deg,#00e676,#00b4d8) !important;
-    border:none !important; border-radius:12px !important;
-    color:#0d1117 !important; font-weight:800 !important;
-    font-size:14px !important; width:100% !important; padding:0.65em !important;
-  }
+  .stButton > button { background:linear-gradient(90deg,#00e676,#00b4d8) !important; border:none !important; border-radius:12px !important; color:#0d1117 !important; font-weight:800 !important; font-size:14px !important; width:100% !important; padding:0.65em !important; }
   .stButton > button:hover { opacity:.9; }
-  
-  .btn-actualizar > button {
-    background:#2d3748 !important; color:#e1e1e1 !important;
-    font-size:12px !important; margin-top: 25px !important;
-  }
-
+  .btn-actualizar > button { background:#2d3748 !important; color:#e1e1e1 !important; font-size:12px !important; margin-top: 25px !important; }
   [data-testid="stAlert"] { border-radius:12px !important; }
   hr { border-color:#2d3748 !important; }
   
-  /* PESTAÑAS TABS INFERIORES */
-  [data-testid="stTabs"] button {
-    background-color: #161c2b !important; color: #8b949e !important;
-    font-weight: 700 !important; border-radius: 8px !important;
-    border: 1px solid #2d3748 !important; padding: 6px 16px !important; margin-right: 8px !important;
-  }
-  [data-testid="stTabs"] button[aria-selected="true"] {
-    background-color: #00e67615 !important; color: #00e676 !important;
-    border: 1px solid #00e676 !important; box-shadow: 0 0 10px rgba(0,230,118,0.1) !important;
-  }
+  [data-testid="stTabs"] button { background-color: #161c2b !important; color: #8b949e !important; font-weight: 700 !important; border-radius: 8px !important; border: 1px solid #2d3748 !important; padding: 6px 16px !important; margin-right: 8px !important; }
+  [data-testid="stTabs"] button[aria-selected="true"] { background-color: #00e67615 !important; color: #00e676 !important; border: 1px solid #00e676 !important; box-shadow: 0 0 10px rgba(0,230,118,0.1) !important; }
   
-  /* CONVERTIR RADIO BUTTONS EN PÍLDORAS */
   div[role="radiogroup"] { gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-  div[role="radiogroup"] > label {
-      background: #161c2b !important; border: 1px solid #2d3748 !important; 
-      border-radius: 20px !important; padding: 8px 16px !important; cursor: pointer;
-  }
+  div[role="radiogroup"] > label { background: #161c2b !important; border: 1px solid #2d3748 !important; border-radius: 20px !important; padding: 8px 16px !important; cursor: pointer; }
   div[role="radiogroup"] > label[data-checked="true"] { background: #00e67615 !important; border-color: #00e676 !important; }
   div[role="radiogroup"] > label span[data-baseweb="radio"] { display: none !important; }
   div[role="radiogroup"] > label p { font-size: 13px !important; color: #8b949e !important; font-weight: 600 !important; margin: 0 !important; }
   div[role="radiogroup"] > label[data-checked="true"] p { color: #00e676 !important; }
   
-  /* TOGGLES */
-  [data-testid="stCheckbox"] {
-      background: #161c2b; padding: 10px 14px; border-radius: 8px; border: 1px solid #2d3748; margin-bottom: 5px;
-  }
+  [data-testid="stCheckbox"] { background: #161c2b; padding: 10px 14px; border-radius: 8px; border: 1px solid #2d3748; margin-bottom: 5px; }
   [data-testid="stCheckbox"] label p { color: #e1e1e1 !important; font-size: 14px !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -320,13 +327,17 @@ st.markdown("""
 try:
     secret_gemini = st.secrets.get("GEMINI_API", "")
     secret_odds = st.secrets.get("ODDS_API", "")
+    secret_football = st.secrets.get("FOOTBALL_API", "")
 except FileNotFoundError:
     secret_gemini = ""
     secret_odds = ""
+    secret_football = ""
 
 api_gemini_ss = secret_gemini or st.session_state.get("_gem","")
 api_odds_ss   = secret_odds or st.session_state.get("_odd","")
-online = bool(api_gemini_ss and api_odds_ss)
+api_foot_ss   = secret_football or st.session_state.get("_foot","")
+
+online = bool(api_gemini_ss and api_odds_ss) # FOOTBALL API ES OPCIONAL PARA ESTAR ONLINE
 dot    = "🟢" if online else "🔴"
 badge  = "EN LÍNEA" if online else "SIN CONEXIÓN"
 bcol   = "#22c55e" if online else "#ef4444"
@@ -339,14 +350,16 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 with st.expander("⚙️ Configuración — Claves API", expanded=not online):
-    if secret_gemini and secret_odds:
+    if secret_gemini and secret_odds and secret_football:
         st.success("✅ Claves cargadas de forma permanente.")
         api_gemini = secret_gemini
         api_odds = secret_odds
+        api_football = secret_football
     else:
-        c1, c2 = st.columns(2)
-        with c1: api_gemini = st.text_input("Gemini API Key", type="password", key="_gem")
-        with c2: api_odds = st.text_input("Odds API Key", type="password", key="_odd")
+        c1, c2, c3 = st.columns(3)
+        with c1: api_gemini = st.text_input("Gemini API", type="password", key="_gem")
+        with c2: api_odds = st.text_input("Odds API", type="password", key="_odd")
+        with c3: api_football = st.text_input("Football API", type="password", key="_foot")
 
 # ─── SELECCIÓN DE LIGA ─────────────────────────────
 st.markdown("<p style='color:#8b949e; font-size:12px; font-weight:600; margin-bottom:5px; margin-top:10px;'>🏆 Elige la Competición</p>", unsafe_allow_html=True)
@@ -362,8 +375,8 @@ with col_btn:
 
 # ─── LÓGICA DE CARGA ──────────────────────────────
 upcoming_matches = []
-if api_odds:
-    resp, restantes = obtener_partidos_api(liga, api_odds)
+if api_odds_ss:
+    resp, restantes = obtener_partidos_api(liga, api_odds_ss)
     if isinstance(resp, list) and len(resp) > 0:
         upcoming_matches = sorted(resp, key=lambda x: x.get('commence_time', ''))[:6]
 
@@ -395,10 +408,9 @@ if upcoming_matches:
         for i, p in enumerate(selected_matches): 
             st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
 else:
-    # Lógica que muestra el error real de la API si existe
-    if api_odds and isinstance(resp, dict) and "message" in resp:
+    if api_odds_ss and isinstance(resp, dict) and "message" in resp:
         st.error(f"❌ El servidor de The-Odds-API dice: {resp['message']}")
-    elif api_odds:
+    elif api_odds_ss:
         st.warning("⚠️ La conexión fue exitosa, pero no hay partidos con cuotas disponibles para esta liga en este momento. Intenta elegir otra competición arriba.")
     else:
         st.info("Ingresa tus claves API para ver los próximos partidos disponibles.")
@@ -407,61 +419,66 @@ else:
 st.markdown("---")
 
 if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
-    if not api_gemini: st.error("❌ Falta la Gemini API Key.")
+    if not api_gemini_ss: st.error("❌ Falta la Gemini API Key.")
     elif not selected_matches: st.error("❌ Enciende el interruptor de al menos un partido.")
     else:
         formatted_matches = []
         partidos_ids = []
-        for p in selected_matches:
-            h2h, t_over, t_under, otros = extraer_odds(p)
-            home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
-            away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
-            partidos_ids.append(f"{home_es}-{away_es}")
-            formatted_matches.append({
-                "local": home_es, "visita": away_es, "fecha": fmt_fecha(p['commence_time'], simple=True),
-                "cuotas_1x2": h2h, "goles_over": t_over, "goles_under": t_under,
-                "otros_mercados": otros
-            })
+        
+        with st.spinner("⏳ Extrayendo estadísticas de Football-Data y cruzando con casas de apuestas..."):
+            for p in selected_matches:
+                h2h, t_over, t_under, otros = extraer_odds(p)
+                home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
+                away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
+                partidos_ids.append(f"{home_es}-{away_es}")
+                
+                # Extracción de estadísticas en tiempo real
+                stats_futbol = {}
+                if api_foot_ss:
+                    stats_futbol = obtener_estadisticas_futbol(home_es, away_es, api_foot_ss)
+                
+                formatted_matches.append({
+                    "local": home_es, "visita": away_es, "fecha": fmt_fecha(p['commence_time'], simple=True),
+                    "estadisticas_reales_equipo": stats_futbol,
+                    "cuotas_1x2": h2h, "goles_over": t_over, "goles_under": t_under,
+                    "otros_mercados": otros
+                })
 
-        # Identificador único de la combinación de partidos seleccionados
         id_combinacion = ",".join(sorted(partidos_ids))
 
-        # EL SÚPER PROMPT CON REGLAS ESTRICTAS DE CUOTAS Y SELECCIONES
         prompt = f"""
         Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
-        Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
+        He cruzado las cuotas reales del mercado con las métricas de rendimiento estadístico (Posición en liga, Goles y Estado de Forma reciente W/D/L).
 
         Competición: {liga_label}
-        Datos de los partidos (Cuotas 1X2, Goles, Córners, Tarjetas, Hándicaps, Jugadores):
+        Datos de los partidos (Cuotas, Hándicaps, Estadísticas Reales, Racha y Posición en Tabla):
         {formatted_matches}
 
         INSTRUCCIONES DE MERCADOS PERMITIDOS Y FILTRADO:
-        Tienes total libertad para elegir los picks más eficientes matemáticamente basándote en la lista de datos. Puedes proponer selecciones de:
-        - Ganador (1X2) y Doble Oportunidad (1X, X2, 12) (Deduce la doble oportunidad combinando cuotas).
-        - Goles Totales o por Equipo (Over/Under desde 0.5 hasta 5.5).
+        Tienes total libertad para elegir los picks más eficientes matemáticamente basándote en cruzar las cuotas con las estadísticas deportivas reales. Puedes proponer selecciones de:
+        - Ganador (1X2) y Doble Oportunidad (1X, X2, 12).
+        - Goles Totales o por Equipo (Over/Under).
         - Ambos Equipos Anotan (Sí/No).
         - Hándicaps Asiáticos.
-        - Actuación de Jugadores (Anota Gol, Remates, etc., si están disponibles en los datos).
-        - Córners y Tarjetas (Más/Menos).
 
-        Genera exactamente 3 estrategias estructuradas respetando estos límites:
+        Genera exactamente 3 estrategias estructuradas respetando estos límites de cuota:
 
         1. Estrategia 1: "🛡️ La Apuesta Segura (Bajo Riesgo)"
            - Cuota Total Permitida: Mínimo @1.15 hasta Máximo @1.40.
-           - Cantidad de Selecciones: De 1 a 2 picks. (Sugerencia: Dobles oportunidades, Over 0.5 o 1.5, Hándicaps amplios).
+           - Cantidad de Selecciones: De 1 a 2 picks.
 
         2. Estrategia 2: "⚖️ La Apuesta Moderada (Riesgo Medio)"
            - Cuota Total Permitida: Mínimo @2.35 hasta Máximo @4.20.
-           - Cantidad de Selecciones: De 2 a 4 picks. (Sugerencia: Ganador directo, Over 2.5, Córners, Ambos Anotan).
+           - Cantidad de Selecciones: De 2 a 4 picks.
 
         3. Estrategia 3: "🔥 La Apuesta Arriesgada (Alta Cuota)"
            - Cuota Total Permitida: Mínimo @4.25 hasta Máximo @8.95.
-           - Cantidad de Selecciones: De 3 a 7 picks. (Sugerencia: Goleadores, Combinaciones de mercados, Hándicaps agresivos).
+           - Cantidad de Selecciones: De 3 a 7 picks.
 
         DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura exacta:
 
         {{
-          "game_script": "Explica brevemente el contexto deducido (torneo, clima, táctica) y cómo afectará el partido.",
+          "game_script": "Explica brevemente el contexto deducido basándote en las estadísticas y rachas de Football-Data, y cómo afectará la táctica del partido.",
           "estrategias": [
             {{
               "nivel": "🛡️ La Apuesta Segura (Protección de Bankroll)",
@@ -469,7 +486,7 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
                 {{"partido": "Local vs Visita", "seleccion": "Mercado elegido", "cuota": "1.30"}}
               ],
               "cuota_total": "1.30",
-              "justificacion": "Análisis de por qué tiene valor..."
+              "justificacion": "Análisis cruzando la cuota con la racha estadística..."
             }},
             {{
               "nivel": "⚖️ La Apuesta Moderada (Valor Esperado +EV)",
@@ -487,25 +504,24 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
                 {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "2.00"}}
               ],
               "cuota_total": "5.00",
-              "justificacion": "Explicación del riesgo y recompensa matemática..."
+              "justificacion": "Explicación del riesgo y recompensa..."
             }}
           ]
         }}
         """
         
         data = None
-        origen_datos = "📥 Análisis cargado y procesado exitosamente (Sistema de Caché Activo)"
+        origen_datos = "📥 Análisis generado exitosamente (Sistema de Súper Caché Activo)"
         
         with st.spinner("🧠 Consultando IA o recuperando desde Caché Local..."):
             try:
-                # Llama a la función cacheada
-                data = obtener_analisis_ia(api_gemini, prompt, id_combinacion)
+                data = obtener_analisis_ia(api_gemini_ss, prompt, id_combinacion)
             except Exception as e:
                 error_msg = str(e)
                 if "429" in error_msg or "quota" in error_msg.lower() or "exhausted" in error_msg.lower():
-                    st.warning("⏳ Has alcanzado el límite de consultas rápidas de la IA. Por favor, espera 1 minuto exacto y vuelve a intentarlo.")
-                elif "503" in error_msg or "high demand" in error_msg.lower() or "unavailable" in error_msg.lower():
-                    st.warning("⏳ Los servidores de Google están experimentando mucha demanda. Por favor, espera unos segundos y vuelve a presionar el botón verde.")
+                    st.warning("⏳ Has alcanzado el límite de consultas rápidas de la IA. Por favor, espera 1 minuto exacto.")
+                elif "503" in error_msg or "high demand" in error_msg.lower():
+                    st.warning("⏳ Los servidores de Google están experimentando mucha demanda. Por favor, espera unos segundos.")
                 else:
                     st.error(f"❌ Error al procesar respuesta de la IA. Detalle: {e}")
 
@@ -526,7 +542,6 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
             for i, tab in enumerate(tabs):
                 with tab:
                     est = data['estrategias'][i]
-                    
                     picks_html = ""
                     for pick in est['picks']:
                         picks_html += f"""<div style="background:#0f172a; padding:12px; border-radius:8px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; border:1px solid #1e293b;">
