@@ -5,8 +5,9 @@ from google.genai import types
 from datetime import datetime, timezone, timedelta
 import math
 import json
+import time # Añadido para el manejo de pausas automáticas
 
-# Manejo seguro de Zona Horaria de Chile (Soporta verano/invierno nativamente)
+# Manejo seguro de Zona Horaria de Chile
 try:
     from zoneinfo import ZoneInfo
     TZ_CHILE = ZoneInfo("America/Santiago")
@@ -146,18 +147,15 @@ def fmt_fecha(iso, simple=False):
     try:
         dt = datetime.fromisoformat(iso.replace("Z","+00:00"))
         dt_chile = dt.astimezone(TZ_CHILE)
-        
         if simple: return dt_chile.strftime('%Y-%m-%d')
         dias = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"]
         meses = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
-        
         return f"{dias[dt_chile.isoweekday()%7]} {dt_chile.day} {meses[dt_chile.month]} · {dt_chile.strftime('%H:%M')} (Chile)"
     except: return "Fecha no disponible · 00:00 (Chile)"
 
 def render_simplified_card(partido, idx=1):
     home_en = partido.get("home_team","Local")
     away_en = partido.get("away_team","Visita")
-    
     home_es = TRADUCCIONES.get(home_en, home_en)
     away_es = TRADUCCIONES.get(away_en, away_en)
     
@@ -165,7 +163,6 @@ def render_simplified_card(partido, idx=1):
     h2h, t_over, t_under = extraer_odds(partido)
     probs = calcular_probs(h2h)
     best = mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es)
-    
     hp, dp, ap = probs["home"], probs["draw"], probs["away"]
     
     odd_h = f"@{h2h['home']}" if h2h.get('home') else "N/A"
@@ -220,64 +217,31 @@ st.markdown("""
   section[data-testid="stSidebar"]    { display:none; }
   .block-container { padding-top:0.8rem !important; max-width:520px !important; }
 
-  label, .stTextInput label, .stTextArea label { 
-      color:#8b949e !important; font-size:12px !important; font-weight:600 !important; 
-  }
-  .stTextInput input, .stTextArea textarea {
-    background:#161c2b !important; color:#e1e1e1 !important;
-    border:1px solid #2d3748 !important; border-radius:10px !important; font-size:13px !important;
-  }
-  [data-testid="stSelectbox"] > div > div {
-    background:#161c2b !important; border:1px solid #2d3748 !important;
-    border-radius:10px !important; color:#e1e1e1 !important;
-  }
-  [data-testid="stExpander"] {
-    background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:12px !important;
-  }
+  label, .stTextInput label, .stTextArea label { color:#8b949e !important; font-size:12px !important; font-weight:600 !important; }
+  .stTextInput input, .stTextArea textarea { background:#161c2b !important; color:#e1e1e1 !important; border:1px solid #2d3748 !important; border-radius:10px !important; font-size:13px !important; }
+  [data-testid="stSelectbox"] > div > div { background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:10px !important; color:#e1e1e1 !important; }
+  [data-testid="stExpander"] { background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:12px !important; }
   [data-testid="stExpanderToggleIcon"] svg { fill:#00e676 !important; }
 
-  .stButton > button {
-    background:linear-gradient(90deg,#00e676,#00b4d8) !important;
-    border:none !important; border-radius:12px !important;
-    color:#0d1117 !important; font-weight:800 !important;
-    font-size:14px !important; width:100% !important; padding:0.65em !important;
-  }
+  .stButton > button { background:linear-gradient(90deg,#00e676,#00b4d8) !important; border:none !important; border-radius:12px !important; color:#0d1117 !important; font-weight:800 !important; font-size:14px !important; width:100% !important; padding:0.65em !important; }
   .stButton > button:hover { opacity:.9; }
   
-  .btn-actualizar > button {
-    background:#2d3748 !important; color:#e1e1e1 !important;
-    font-size:12px !important; margin-top: 25px !important;
-  }
+  .btn-actualizar > button { background:#2d3748 !important; color:#e1e1e1 !important; font-size:12px !important; margin-top: 25px !important; }
 
   [data-testid="stAlert"] { border-radius:12px !important; }
   hr { border-color:#2d3748 !important; }
   
-  /* PESTAÑAS TABS INFERIORES */
-  [data-testid="stTabs"] button {
-    background-color: #161c2b !important; color: #8b949e !important;
-    font-weight: 700 !important; border-radius: 8px !important;
-    border: 1px solid #2d3748 !important; padding: 6px 16px !important; margin-right: 8px !important;
-  }
-  [data-testid="stTabs"] button[aria-selected="true"] {
-    background-color: #00e67615 !important; color: #00e676 !important;
-    border: 1px solid #00e676 !important; box-shadow: 0 0 10px rgba(0,230,118,0.1) !important;
-  }
+  [data-testid="stTabs"] button { background-color: #161c2b !important; color: #8b949e !important; font-weight: 700 !important; border-radius: 8px !important; border: 1px solid #2d3748 !important; padding: 6px 16px !important; margin-right: 8px !important; }
+  [data-testid="stTabs"] button[aria-selected="true"] { background-color: #00e67615 !important; color: #00e676 !important; border: 1px solid #00e676 !important; box-shadow: 0 0 10px rgba(0,230,118,0.1) !important; }
   
-  /* CONVERTIR RADIO BUTTONS EN PÍLDORAS */
   div[role="radiogroup"] { gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-  div[role="radiogroup"] > label {
-      background: #161c2b !important; border: 1px solid #2d3748 !important; 
-      border-radius: 20px !important; padding: 8px 16px !important; cursor: pointer;
-  }
+  div[role="radiogroup"] > label { background: #161c2b !important; border: 1px solid #2d3748 !important; border-radius: 20px !important; padding: 8px 16px !important; cursor: pointer; }
   div[role="radiogroup"] > label[data-checked="true"] { background: #00e67615 !important; border-color: #00e676 !important; }
   div[role="radiogroup"] > label span[data-baseweb="radio"] { display: none !important; }
   div[role="radiogroup"] > label p { font-size: 13px !important; color: #8b949e !important; font-weight: 600 !important; margin: 0 !important; }
   div[role="radiogroup"] > label[data-checked="true"] p { color: #00e676 !important; }
   
-  /* TOGGLES */
-  [data-testid="stCheckbox"] {
-      background: #161c2b; padding: 10px 14px; border-radius: 8px; border: 1px solid #2d3748; margin-bottom: 5px;
-  }
+  [data-testid="stCheckbox"] { background: #161c2b; padding: 10px 14px; border-radius: 8px; border: 1px solid #2d3748; margin-bottom: 5px; }
   [data-testid="stCheckbox"] label p { color: #e1e1e1 !important; font-size: 14px !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -358,13 +322,24 @@ if upcoming_matches:
 else:
     st.info("Ingresa tus claves API para ver los próximos partidos disponibles.")
 
-# ─── ANÁLISIS IA AUTOMATIZADO CON LÍMITES MATEMÁTICOS Y CACHÉ LOCAL ───
+# ─── ANÁLISIS IA CON COMPARTIMENTACIÓN Y SISTEMA ANTI-SPAM ───
 st.markdown("---")
+
+# Inicializamos variables de estado para el control de tiempo (Cooldown)
+if "last_api_call" not in st.session_state:
+    st.session_state["last_api_call"] = 0
+if "base_datos_analisis" not in st.session_state:
+    st.session_state["base_datos_analisis"] = {}
 
 if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
     if not api_gemini: st.error("❌ Falta la Gemini API Key.")
     elif not selected_matches: st.error("❌ Enciende el interruptor de al menos un partido.")
     else:
+        # ESCUDO 1: BLOQUEO ANTI-SPAM (COOLDOWN DE 30 SEGUNDOS)
+        tiempo_actual = time.time()
+        tiempo_pasado = tiempo_actual - st.session_state["last_api_call"]
+        cooldown_necesario = 30 # Segundos de espera entre peticiones a la API
+        
         formatted_matches = []
         partidos_ids = []
         for p in selected_matches:
@@ -377,26 +352,26 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
                 "cuotas_1x2": h2h, "goles_over": t_over, "goles_under": t_under
             })
 
-        # Identificador único de la combinación de partidos seleccionados
         id_combinacion = ",".join(sorted(partidos_ids))
-
-        # Inicializar el almacén local en la RAM (Session State) si no existe
-        if "base_datos_analisis" not in st.session_state:
-            st.session_state["base_datos_analisis"] = {}
-
-        # 🔄 LÓGICA DE BASE DE DATOS LOCAL
         analisis_previo = st.session_state["base_datos_analisis"].get(id_combinacion)
 
         data = None
         origen_datos = ""
 
+        # Si el análisis ya existe en caché, lo mostramos al instante ignorando el Cooldown
         if analisis_previo:
             data = analisis_previo
-            origen_datos = "📥 Algoritmo Optimizado: Recuperado desde Base de Datos Local (0 tokens gastados)"
+            origen_datos = "📥 Recuperado desde Memoria Caché Local (0 tokens gastados)"
+        
+        # Si NO existe, revisamos si el usuario está bajo penalización por hacer clic muy rápido
+        elif tiempo_pasado < cooldown_necesario:
+            segundos_restantes = int(cooldown_necesario - tiempo_pasado)
+            st.warning(f"⏳ El algoritmo está enfriándose para evitar que Google te bloquee. Por favor, espera **{segundos_restantes} segundos** antes de generar un análisis nuevo.")
+        
+        # Si pasó el tiempo de seguridad, procedemos con la IA
         else:
-            origen_datos = "🧠 Algoritmo Quant: Ejecutando simulación predictiva y guardando en historial"
+            origen_datos = "🧠 Algoritmo Quant (Gemini-3.5): Ejecutando simulación"
             
-            # EL SÚPER PROMPT CON REGLAS ESTRICTAS DE CUOTAS Y SELECCIONES
             prompt = f"""
             Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
             Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
@@ -410,26 +385,23 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
 
             1. Estrategia 1: "🛡️ La Apuesta Segura (Bajo Riesgo)"
                - Cuota Total Permitida: Mínimo @1.15 hasta Máximo @1.40.
-               - Cantidad de Selecciones: De 1 a 2 selecciones (picks). Puede ser del mismo partido o combinando varios partidos de la lista provista.
+               - Cantidad de Selecciones: De 1 a 2 selecciones.
 
             2. Estrategia 2: "⚖️ La Apuesta Moderada (Riesgo Medio)"
                - Cuota Total Permitida: Mínimo @2.35 hasta Máximo @4.20.
-               - Cantidad de Selecciones: De 2 a 4 selecciones (picks) mezclando 1 o más partidos de la lista provista.
+               - Cantidad de Selecciones: De 2 a 4 selecciones.
 
             3. Estrategia 3: "🔥 La Apuesta Arriesgada (Alta Cuota)"
                - Cuota Total Permitida: Mínimo @4.25 hasta Máximo @8.95.
-               - Cantidad de Selecciones: De 5 a 7 selecciones (picks) de micro-probabilidad, mezclando 1 o más partidos de la lista provista.
+               - Cantidad de Selecciones: De 5 a 7 selecciones.
 
             DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura exacta:
-
             {{
-              "game_script": "Explica brevemente el contexto que has deducido (torneo, clima estimado, situación táctica) y cómo afectará el ritmo de juego (máx 4 líneas).",
+              "game_script": "Explica brevemente el contexto que has deducido y cómo afectará el ritmo de juego (máx 4 líneas).",
               "estrategias": [
                 {{
                   "nivel": "🛡️ La Apuesta Segura (Protección de Bankroll)",
-                  "picks": [
-                    {{"partido": "Local vs Visita", "seleccion": "Mercado elegido", "cuota": "1.30"}}
-                  ],
+                  "picks": [ {{"partido": "Local vs Visita", "seleccion": "Mercado elegido", "cuota": "1.30"}} ],
                   "cuota_total": "1.30",
                   "justificacion": "Análisis cuantitativo de por qué esta cuota tiene valor real..."
                 }},
@@ -457,31 +429,46 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
               ]
             }}
             """
-            with st.spinner("🧠 Deduciendo contexto táctico y calculando Valor Esperado..."):
-                try:
-                    client = genai.Client(api_key=api_gemini)
-                    resp = client.models.generate_content(
-                        model="gemini-3.5-flash",  # MANTENIDO TAL CUAL LO SOLICITASTE
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            max_output_tokens=4096, 
-                            temperature=0.2,
-                            response_mime_type="application/json"
-                        )
-                    )
-                    
-                    data = json.loads(resp.text)
-                    
-                    # Guardar el nuevo análisis en la memoria RAM para futuras consultas instantáneas
-                    st.session_state["base_datos_analisis"][id_combinacion] = data
-                    
-                except Exception as e:
-                    # MANEJADOR DE ERRORES AMIGABLE
-                    error_msg = str(e)
-                    if "503" in error_msg or "high demand" in error_msg.lower() or "unavailable" in error_msg.lower():
-                        st.warning("⏳ Los servidores de Inteligencia Artificial de Google están experimentando mucha demanda en este instante. Por favor, espera unos segundos y vuelve a presionar el botón verde.")
-                    else:
-                        st.error(f"❌ Error al procesar respuesta de la IA. Intenta de nuevo. Detalle: {e}")
+            
+            # ESCUDO 2: REINTENTO AUTOMÁTICO SILENCIOSO (BACKOFF)
+            max_intentos = 3
+            intento_actual = 0
+            exito = False
+            
+            # Contenedor visual para actualizar el estado del spinner
+            status_container = st.empty()
+            
+            while intento_actual < max_intentos and not exito:
+                with status_container.container():
+                    mensaje_spinner = "🧠 Consultando Algoritmo Quant..." if intento_actual == 0 else f"⏳ Red de IA saturada. Reintento automático silencioso ({intento_actual}/{max_intentos - 1})..."
+                    with st.spinner(mensaje_spinner):
+                        try:
+                            client = genai.Client(api_key=api_gemini)
+                            resp = client.models.generate_content(
+                                model="gemini-3.5-flash",
+                                contents=prompt,
+                                config=types.GenerateContentConfig(
+                                    max_output_tokens=4096, 
+                                    temperature=0.2,
+                                    response_mime_type="application/json"
+                                )
+                            )
+                            data = json.loads(resp.text)
+                            st.session_state["base_datos_analisis"][id_combinacion] = data
+                            st.session_state["last_api_call"] = time.time() # Actualizamos el reloj anti-spam
+                            exito = True
+                            status_container.empty() # Limpiamos el spinner al terminar
+                            
+                        except Exception as e:
+                            intento_actual += 1
+                            error_msg = str(e)
+                            # Si es un error de cuota o saturación, dormimos el código y lo intentamos de nuevo sin decirle al usuario
+                            if ("429" in error_msg or "503" in error_msg or "quota" in error_msg.lower()) and intento_actual < max_intentos:
+                                time.sleep(8) # Duerme 8 segundos
+                            else:
+                                # Si ya superó los 3 intentos o es un error irrecuperable, lo mostramos
+                                st.error("❌ Los servidores de Google rechazaron todas las peticiones tras varios intentos. Por favor, intenta usar gemini-1.5-flash o espera un par de minutos.")
+                                break
 
         # RENDERIZAR RESULTADO FINAL
         if data:
