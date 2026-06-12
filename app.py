@@ -77,8 +77,8 @@ LIGAS = {
 # ═══════════════════════════════════════════════
 @st.cache_data(ttl=21600, persist="disk", show_spinner=False)
 def obtener_partidos_api(liga, api_key):
-    # Se eliminan los mercados inválidos para planes gratuitos
-    mercados = "h2h,totals,spreads,btts"
+    # Dejamos SOLO los 3 mercados universales garantizados
+    mercados = "h2h,totals,spreads"
     url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
            f"?apiKey={api_key}&regions=eu&markets={mercados}")
     try:
