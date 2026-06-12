@@ -239,12 +239,27 @@ st.markdown("""
   [data-testid="stAlert"] { border-radius:12px !important; }
   hr { border-color:#2d3748 !important; }
   
-  /* Pestañas de Streamlit personalizadas */
+  /* ========================================================= */
+  /* PESTAÑAS CONVERTIDAS EN BOTONES (Tabs)                    */
+  /* ========================================================= */
   [data-testid="stTabs"] button {
-    color: #8b949e !important; font-weight: 700 !important;
+    background-color: #161c2b !important;
+    color: #8b949e !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
+    border: 1px solid #2d3748 !important;
+    padding: 6px 16px !important;
+    margin-right: 8px !important;
+  }
+  [data-testid="stTabs"] button:hover {
+    background-color: #2d3748 !important;
+    color: #e1e1e1 !important;
   }
   [data-testid="stTabs"] button[aria-selected="true"] {
-    color: #00e676 !important; border-bottom-color: #00e676 !important;
+    background-color: #00e67615 !important;
+    color: #00e676 !important;
+    border: 1px solid #00e676 !important;
+    box-shadow: 0 0 10px rgba(0,230,118,0.1) !important;
   }
 </style>
 """, unsafe_allow_html=True)
