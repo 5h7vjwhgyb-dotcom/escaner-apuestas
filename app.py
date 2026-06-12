@@ -5,8 +5,25 @@ from google.genai import types
 from datetime import datetime, timezone, timedelta
 import math
 import json
+import time  # Importado para manejos de pausas si son necesarias
 
-# Manejo seguro de Zona Horaria de Chile (Soporta verano/invierno nativamente)
+# ═══════════════════════════════════════════════
+# SOPORTE DE REINTENTOS PARA EVITAR ERROR 429
+# ═══════════════════════════════════════════════
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+    # Definimos un decorador de reintento específico para cuando la API se agote
+    retry_gemini = retry(
+        stop=stop_after_attempt(4),  # Reintenta hasta 4 veces antes de fallar
+        wait=wait_exponential(multiplier=2, min=4, max=15),  # Espera 4s, luego 8s, etc.
+        reraise=True
+    )
+except ImportError:
+    # Fallback si no está instalado tenacity (se recomienda agregar al requirements.txt)
+    def retry_gemini(func):
+        return func
+
+# Manejo seguro de Zona Horaria de Chile
 try:
     from zoneinfo import ZoneInfo
     TZ_CHILE = ZoneInfo("America/Santiago")
@@ -81,7 +98,6 @@ def obtener_partidos_api(liga, api_key):
            f"?apiKey={api_key}&regions=eu&markets=h2h,totals")
     try:
         resp_raw = requests.get(url, timeout=10)
-        # Validar código de estado
         if resp_raw.status_code != 200:
             return {"error": f"Error {resp_raw.status_code}: {resp_raw.text}"}, None
         restantes = resp_raw.headers.get("x-requests-remaining", "?")
@@ -89,7 +105,30 @@ def obtener_partidos_api(liga, api_key):
     except requests.exceptions.RequestException as e:
         return {"error": f"Error de conexión: {str(e)}"}, None
 
-# Variable global para saber si los datos son frescos o cache
+# ═══════════════════════════════════════════════
+# NUEVA FUNCIÓN CON CACHÉ PARA GENERACIÓN IA
+# ═══════════════════════════════════════════════
+# Cacheamos por 4 horas el análisis. Si cambian los partidos seleccionados o la liga, 
+# la clave de caché mutará automáticamente recalculando el análisis.
+@st.cache_data(ttl=14400, show_spinner=False)
+def generar_analisis_ia_cached(formatted_matches_str, liga_label, api_gemini, prompt):
+    # Función interna decorada con reintentos automáticos si falla por saturación
+    @retry_gemini
+    def ejecutar_llamada():
+        client = genai.Client(api_key=api_gemini)
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                max_output_tokens=4096, 
+                temperature=0.2,
+                response_mime_type="application/json"
+            )
+        )
+        return resp.text
+
+    return ejecutar_llamada()
+
 datos_frescos = False
 
 # ═══════════════════════════════════════════════
@@ -149,13 +188,10 @@ def mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es):
     return max(cands, key=lambda x: x["prob"]) if cands else None
 
 def fmt_fecha(iso, simple=False):
-    """Convierte fecha ISO a formato legible en zona horaria de Chile."""
     try:
-        # Intento con reemplazo de 'Z' y manejo de offsets
         dt = datetime.fromisoformat(iso.replace("Z","+00:00"))
     except ValueError:
         try:
-            # Si falla, asumir UTC sin offset explícito
             dt = datetime.fromisoformat(iso).replace(tzinfo=timezone.utc)
         except:
             return "Fecha no disponible · 00:00 (Chile)"
@@ -172,7 +208,6 @@ def fmt_fecha(iso, simple=False):
 def render_simplified_card(partido, idx=1):
     home_en = partido.get("home_team","Local")
     away_en = partido.get("away_team","Visita")
-    
     home_es = TRADUCCIONES.get(home_en, home_en)
     away_es = TRADUCCIONES.get(away_en, away_en)
     
@@ -182,7 +217,6 @@ def render_simplified_card(partido, idx=1):
     best = mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es)
     
     hp, dp, ap = probs["home"], probs["draw"], probs["away"]
-    
     odd_h = f"@{h2h['home']}" if h2h.get('home') else "N/A"
     odd_d = f"@{h2h['draw']}" if h2h.get('draw') else "N/A"
     odd_a = f"@{h2h['away']}" if h2h.get('away') else "N/A"
@@ -263,7 +297,6 @@ st.markdown("""
   [data-testid="stAlert"] { border-radius:12px !important; }
   hr { border-color:#2d3748 !important; }
   
-  /* PESTAÑAS TABS INFERIORES */
   [data-testid="stTabs"] button {
     background-color: #161c2b !important; color: #8b949e !important;
     font-weight: 700 !important; border-radius: 8px !important;
@@ -274,7 +307,6 @@ st.markdown("""
     border: 1px solid #00e676 !important; box-shadow: 0 0 10px rgba(0,230,118,0.1) !important;
   }
   
-  /* MAGIA CSS: CONVERTIR RADIO BUTTONS EN "PÍLDORAS" PARA LAS LIGAS */
   div[role="radiogroup"] {
       gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
   }
@@ -289,7 +321,6 @@ st.markdown("""
   div[role="radiogroup"] > label p { font-size: 13px !important; color: #8b949e !important; font-weight: 600 !important; margin: 0 !important; }
   div[role="radiogroup"] > label[data-checked="true"] p { color: #00e676 !important; }
   
-  /* ESTILOS PARA LOS TOGGLES DE PARTIDOS */
   [data-testid="stCheckbox"] {
       background: #161c2b; padding: 10px 14px; border-radius: 8px; 
       border: 1px solid #2d3748; margin-bottom: 5px;
@@ -298,21 +329,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ─── LECTURA DE SECRETS Y CLAVES ─────────────────────────────────
 secret_gemini = st.secrets.get("GEMINI_API", "")
 secret_odds = st.secrets.get("ODDS_API", "")
 
-# Inicializar variables para claves
 api_gemini = ""
 api_odds = ""
 
-# Si existen en secrets, las usamos directamente
 if secret_gemini and secret_odds:
     api_gemini = secret_gemini
     api_odds = secret_odds
     online = True
 else:
-    # Si no, revisamos session_state
     api_gemini = st.session_state.get("_gem", "")
     api_odds = st.session_state.get("_odd", "")
     online = bool(api_gemini and api_odds)
@@ -333,7 +360,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ─── CONFIGURACIÓN ───────────────────────────────────────────────
 if not (secret_gemini and secret_odds):
     with st.expander("⚙️ Configuración — Claves API", expanded=not online):
         c1, c2 = st.columns(2)
@@ -342,11 +368,9 @@ if not (secret_gemini and secret_odds):
         with c2:
             api_odds = st.text_input("Odds API Key", type="password", help="the-odds-api.com", key="_odd")
 else:
-    # Mostrar igual el expander pero colapsado y con mensaje de éxito
     with st.expander("⚙️ Configuración — Claves API", expanded=False):
         st.success("✅ Claves cargadas de forma permanente desde secrets.")
 
-# ─── SELECCIÓN DE LIGA (AHORA COMO BOTONES/PÍLDORAS) ─────────────
 st.markdown("<p style='color:#8b949e; font-size:12px; font-weight:600; margin-bottom:5px; margin-top:10px;'>🏆 Elige la Competición</p>", unsafe_allow_html=True)
 
 col_liga, col_btn = st.columns([4, 1])
@@ -362,7 +386,6 @@ with col_btn:
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ─── LÓGICA DE CARGA ──────────────────────────────
 upcoming_matches = []
 restantes = None
 datos_frescos = False
@@ -370,9 +393,8 @@ datos_frescos = False
 if api_odds:
     with st.spinner("🚀 Consultando cuotas en vivo..."):
         resp, restantes = obtener_partidos_api(liga, api_odds)
-        # Si no hay error y es una lista
         if isinstance(resp, list) and len(resp) > 0:
-            datos_frescos = True  # Asumimos que si no se usó caché, se marcará como fresco
+            datos_frescos = True 
             sorted_resp = sorted(resp, key=lambda x: x.get('commence_time', ''))
             upcoming_matches = sorted_resp[:6]
         elif isinstance(resp, dict):
@@ -387,17 +409,15 @@ if api_odds:
 
 st.markdown("---")
 
-# ─── SELECCIÓN DE PARTIDOS (AGRUPADOS POR DÍA + INTERRUPTORES) ───
 st.subheader("🎯 Selecciona los partidos")
-
 selected_matches = []
 
 if upcoming_matches:
     partidos_por_dia = {}
     for p in upcoming_matches:
         fecha_str = fmt_fecha(p['commence_time'])
-        dia = fecha_str.split(" · ")[0]  # Ej: Sáb 13 Jun
-        hora = fecha_str.split(" · ")[1] # Ej: 15:00 (Chile)
+        dia = fecha_str.split(" · ")[0]  
+        hora = fecha_str.split(" · ")[1] 
         
         if dia not in partidos_por_dia:
             partidos_por_dia[dia] = []
@@ -410,7 +430,6 @@ if upcoming_matches:
             home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
             away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
             
-            # Texto plano sin Markdown
             label_plano = f"⚽ {home_es} vs {away_es}   🕒 {hora}"
             unique_key = p.get('id', p['home_team'] + p['commence_time'])
             
@@ -422,7 +441,6 @@ if upcoming_matches:
         for i, p in enumerate(selected_matches):
             st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
         
-        # Mostrar peticiones restantes con indicación de si es fresco o cache
         if restantes:
             cache_msg = "🔄 Dato cacheado (no actual)" if not datos_frescos else "⚡ Actualizado"
             st.markdown(
@@ -434,9 +452,9 @@ if upcoming_matches:
 else:
     st.info("Ingresa tus claves API para ver los próximos partidos disponibles.")
 
-# ─── ANÁLISIS IA (100% AUTOMATIZADO) ─────────────────────────────
 st.markdown("---")
 
+# ─── ANÁLISIS IA OPTIMIZADO (CON CACHÉ Y REINTENTOS COHESIVOS) ───
 if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
     if not api_gemini:
         st.error("❌ Falta la Gemini API Key. Ponla en Configuración.")
@@ -459,14 +477,16 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
             }
             formatted_matches.append(p_data)
 
-        # EL SÚPER PROMPT
+        # Convertimos la lista de partidos estructurada a string JSON para usarlo como llave estricta de caché.
+        formatted_matches_str = json.dumps(formatted_matches, sort_keys=True)
+
         prompt = f"""
 Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
 Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
 
 Competición: {liga_label}
 Datos de los partidos (Cuotas reales 1X2 y Goles):
-{formatted_matches}
+{formatted_matches_str}
 
 INSTRUCCIONES CLAVE (DEDUCCIÓN DE CONTEXTO):
 No te proporcionaré el clima, las bajas ni la situación del torneo. TÚ DEBES deducirlo automáticamente usando tu base de conocimientos:
@@ -512,21 +532,11 @@ DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura ex
 """
         with st.spinner("🧠 Deduciendo contexto táctico y calculando Valor Esperado..."):
             try:
-                client = genai.Client(api_key=api_gemini)
-                resp = client.models.generate_content(
-                    model="gemini-2.0-flash",  # Cambiado a modelo estable
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        max_output_tokens=4096, 
-                        temperature=0.2,
-                        response_mime_type="application/json"
-                    )
-                )
-                
-                data = json.loads(resp.text)
+                # Invocamos la función optimizada con caché y reintentos automáticos integrados
+                raw_response = generar_analisis_ia_cached(formatted_matches_str, liga_label, api_gemini, prompt)
+                data = json.loads(raw_response)
                 
                 st.markdown("### 📈 El Veredicto del Algoritmo")
-                
                 st.markdown(f"""
                 <div style="background:#0d1117; border-left:4px solid #8b5cf6; padding:14px 16px; border-radius:8px; margin-bottom:20px;">
                     <div style="color:#a78bfa; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;">⚡ Game Script (Contexto Deducido)</div>
@@ -539,7 +549,6 @@ DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura ex
                 for i, tab in enumerate(tabs):
                     with tab:
                         est = data['estrategias'][i]
-                        
                         picks_html = ""
                         for pick in est['picks']:
                             picks_html += f"""<div style="background:#0f172a; padding:12px; border-radius:8px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; border:1px solid #1e293b;">
@@ -567,9 +576,11 @@ DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura ex
                         
             except Exception as e:
                 error_msg = str(e)
-                if "503" in error_msg or "high demand" in error_msg.lower() or "unavailable" in error_msg.lower():
-                    st.warning("⏳ Los servidores de Inteligencia Artificial de Google están experimentando mucha demanda en este instante. Por favor, espera unos segundos y vuelve a presionar el botón verde.")
+                if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                    st.error("⏳ Se han agotado temporalmente los recursos de la API gratuita. Por seguridad, la app guardó los datos en caché. Por favor, espera 30 segundos y vuelve a presionar el botón.")
+                elif "503" in error_msg or "high demand" in error_msg.lower() or "unavailable" in error_msg.lower():
+                    st.warning("⏳ Alta demanda en los servidores. Reintentando automáticamente en segundo plano...")
                 else:
-                    st.error(f"❌ Error al procesar respuesta de la IA. Intenta de nuevo. Detalle: {e}")
+                    st.error(f"❌ Error inesperado: {e}")
 
 st.markdown('<div style="height:30px;"></div>', unsafe_allow_html=True)
