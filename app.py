@@ -73,12 +73,13 @@ LIGAS = {
 }
 
 # ═══════════════════════════════════════════════
-# FUNCIÓN CON CACHÉ PARA LA API DE ODDS
+# FUNCIÓN CON CACHÉ PARA LA API DE ODDS (ACTUALIZADA)
 # ═══════════════════════════════════════════════
 @st.cache_data(ttl=43200, show_spinner=False)
 def obtener_partidos_api(liga, api_key):
+    mercados = "h2h,totals,spreads,btts,player_goalscorer,corners_match,cards_match"
     url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
-           f"?apiKey={api_key}&regions=eu&markets=h2h,totals")
+           f"?apiKey={api_key}&regions=eu&markets={mercados}")
     try:
         resp_raw = requests.get(url, timeout=10)
         restantes = resp_raw.headers.get("x-requests-remaining", "?")
@@ -96,10 +97,12 @@ def extraer_odds(partido):
     away = partido.get("away_team","")
     h2h = {"home":None,"draw":None,"away":None}
     t_over, t_under = {}, {}
+    otros_mercados = {} # Contenedor dinámico para nuevos mercados
     
     for bk in partido.get("bookmakers",[]):
         for mkt in bk.get("markets",[]):
-            if mkt["key"] == "h2h":
+            mk_key = mkt["key"]
+            if mk_key == "h2h":
                 for o in mkt["outcomes"]:
                     p = o["price"]
                     if o["name"] == home:
@@ -108,15 +111,30 @@ def extraer_odds(partido):
                         if h2h["away"] is None or p > h2h["away"]: h2h["away"] = round(p,2)
                     elif o["name"] == "Draw":
                         if h2h["draw"] is None or p > h2h["draw"]: h2h["draw"] = round(p,2)
-            elif mkt["key"] == "totals":
+            elif mk_key == "totals":
                 for o in mkt["outcomes"]:
                     pt = o.get("point", 2.5); p = o["price"]
                     if o["name"] == "Over":
                         if pt not in t_over or p > t_over[pt]: t_over[pt] = round(p,2)
                     else:
                         if pt not in t_under or p > t_under[pt]: t_under[pt] = round(p,2)
+            else:
+                # Captura Spreads, BTTS, Tarjetas, Córners y Jugadores
+                if mk_key not in otros_mercados:
+                    otros_mercados[mk_key] = {}
+                
+                for o in mkt["outcomes"]:
+                    nombre = o["name"]
+                    punto = o.get("point", "")
+                    desc = o.get("description", "")
+                    label = f"{nombre} {punto} {desc}".strip()
+                    precio = round(o["price"], 2)
+                    
+                    # Guarda solo la mejor cuota para cada opción específica
+                    if label not in otros_mercados[mk_key] or precio > otros_mercados[mk_key][label]:
+                        otros_mercados[mk_key][label] = precio
                         
-    return h2h, t_over, t_under
+    return h2h, t_over, t_under, otros_mercados
 
 def calcular_probs(h2h):
     if not all(v is not None for v in h2h.values()):
@@ -162,7 +180,10 @@ def render_simplified_card(partido, idx=1):
     away_es = TRADUCCIONES.get(away_en, away_en)
     
     fecha = fmt_fecha(partido.get("commence_time",""))
-    h2h, t_over, t_under = extraer_odds(partido)
+    
+    # Se agrega el "_" para ignorar los otros_mercados en la vista resumida
+    h2h, t_over, t_under, _ = extraer_odds(partido) 
+    
     probs = calcular_probs(h2h)
     best = mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es)
     
@@ -368,13 +389,14 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
         formatted_matches = []
         partidos_ids = []
         for p in selected_matches:
-            h2h, t_over, t_under = extraer_odds(p)
+            h2h, t_over, t_under, otros = extraer_odds(p)
             home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
             away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
             partidos_ids.append(f"{home_es}-{away_es}")
             formatted_matches.append({
                 "local": home_es, "visita": away_es, "fecha": fmt_fecha(p['commence_time'], simple=True),
-                "cuotas_1x2": h2h, "goles_over": t_over, "goles_under": t_under
+                "cuotas_1x2": h2h, "goles_over": t_over, "goles_under": t_under,
+                "otros_mercados": otros
             })
 
         # Identificador único de la combinación de partidos seleccionados
@@ -402,36 +424,44 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
             Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
 
             Competición: {liga_label}
-            Datos de los partidos (Cuotas reales 1X2 y Goles):
+            Datos de los partidos (Cuotas 1X2, Goles, Córners, Tarjetas, Hándicaps, Jugadores):
             {formatted_matches}
 
-            INSTRUCCIONES DE FILTRADO OBLIGATORIO (REGLAS DE NEGOCIO):
-            Deduce el contexto táctico e histórico de los partidos. Genera exactamente 3 estrategias estructuradas que cumplan estrictamente con estos límites matemáticos de cuotas y combinaciones:
+            INSTRUCCIONES DE MERCADOS PERMITIDOS Y FILTRADO:
+            Tienes total libertad para elegir los picks más eficientes matemáticamente basándote en la lista de datos. Puedes proponer selecciones de:
+            - Ganador (1X2) y Doble Oportunidad (1X, X2, 12) (Deduce la doble oportunidad combinando cuotas).
+            - Goles Totales o por Equipo (Over/Under desde 0.5 hasta 5.5).
+            - Ambos Equipos Anotan (Sí/No).
+            - Hándicaps Asiáticos.
+            - Actuación de Jugadores (Anota Gol, Remates, etc., si están disponibles en los datos).
+            - Córners y Tarjetas (Más/Menos).
+
+            Genera exactamente 3 estrategias estructuradas respetando estos límites:
 
             1. Estrategia 1: "🛡️ La Apuesta Segura (Bajo Riesgo)"
                - Cuota Total Permitida: Mínimo @1.15 hasta Máximo @1.40.
-               - Cantidad de Selecciones: De 1 a 2 selecciones (picks). Puede ser del mismo partido o combinando varios partidos de la lista provista.
+               - Cantidad de Selecciones: De 1 a 2 picks. (Sugerencia: Dobles oportunidades, Over 0.5 o 1.5, Hándicaps amplios).
 
             2. Estrategia 2: "⚖️ La Apuesta Moderada (Riesgo Medio)"
                - Cuota Total Permitida: Mínimo @2.35 hasta Máximo @4.20.
-               - Cantidad de Selecciones: De 2 a 4 selecciones (picks) mezclando 1 o más partidos de la lista provista.
+               - Cantidad de Selecciones: De 2 a 4 picks. (Sugerencia: Ganador directo, Over 2.5, Córners, Ambos Anotan).
 
             3. Estrategia 3: "🔥 La Apuesta Arriesgada (Alta Cuota)"
                - Cuota Total Permitida: Mínimo @4.25 hasta Máximo @8.95.
-               - Cantidad de Selecciones: De 5 a 7 selecciones (picks) de micro-probabilidad, mezclando 1 o más partidos de la lista provista.
+               - Cantidad de Selecciones: De 3 a 7 picks. (Sugerencia: Goleadores, Combinaciones de mercados, Hándicaps agresivos).
 
             DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura exacta:
 
             {{
-              "game_script": "Explica brevemente el contexto que has deducido (torneo, clima estimado, situación táctica) y cómo afectará el ritmo de juego (máx 4 líneas).",
+              "game_script": "Explica brevemente el contexto deducido (torneo, clima, táctica) y cómo afectará el partido.",
               "estrategias": [
                 {{
                   "nivel": "🛡️ La Apuesta Segura (Protección de Bankroll)",
                   "picks": [
-                    {{"partido": "Local vs Visita", "seleccion": "Mercado elegido", "cuota": "1.30"}}
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado elegido (ej. Over 1.5 Goles o Doble Oportunidad)", "cuota": "1.30"}}
                   ],
                   "cuota_total": "1.30",
-                  "justificacion": "Análisis cuantitativo de por qué esta cuota tiene valor real..."
+                  "justificacion": "Análisis de por qué tiene valor..."
                 }},
                 {{
                   "nivel": "⚖️ La Apuesta Moderada (Valor Esperado +EV)",
@@ -445,13 +475,10 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
                 {{
                   "nivel": "🔥 La Apuesta Arriesgada (Ineficiencia de Mercado)",
                   "picks": [
-                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.50"}},
-                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.40"}},
-                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.30"}},
-                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.50"}},
-                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.20"}}
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "2.50"}},
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "2.00"}}
                   ],
-                  "cuota_total": "5.67",
+                  "cuota_total": "5.00",
                   "justificacion": "Explicación del riesgo y recompensa matemática..."
                 }}
               ]
