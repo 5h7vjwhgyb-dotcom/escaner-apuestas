@@ -4,6 +4,7 @@ from google import genai
 from google.genai import types
 from datetime import datetime, timezone, timedelta
 import json
+import time
 
 # Manejo seguro de Zona Horaria de Chile
 try:
@@ -72,7 +73,7 @@ LIGAS = {
 }
 
 # ═══════════════════════════════════════════════
-# FUNCIONES API CON CACHÉ 
+# FUNCIONES API CON CACHÉ
 # ═══════════════════════════════════════════════
 @st.cache_data(ttl=43200, show_spinner=False)
 def obtener_partidos_api(liga, api_key):
@@ -105,11 +106,32 @@ def obtener_estadisticas_apisports(fixture_id, api_key):
     except:
         return []
 
+# ── FIX 2: Llamada a Gemini con caché + retry con backoff ──────────────
+@st.cache_data(ttl=3600, show_spinner=False)
+def llamar_gemini(prompt_str, api_key):
+    client = genai.Client(api_key=api_key)
+    for intento in range(3):
+        try:
+            resp = client.models.generate_content(
+                model="gemini-3.5-flash",
+                contents=prompt_str,
+                config=types.GenerateContentConfig(
+                    temperature=0.2,
+                    response_mime_type="application/json"
+                )
+            )
+            return resp.text
+        except Exception as e:
+            if "429" in str(e) and intento < 2:
+                time.sleep(15 * (intento + 1))  # 15s → 30s
+            else:
+                raise
+
 # ═══════════════════════════════════════════════
 # CLAVES API SEGURAS (DESDE SECRETS)
 # ═══════════════════════════════════════════════
 api_gemini = st.secrets.get("GEMINI_API", "")
-api_odds = st.secrets.get("ODDS_API", "")
+api_odds   = st.secrets.get("ODDS_API", "")
 api_sports = st.secrets.get("SPORTS_API", "")
 
 online = bool(api_gemini and api_odds and api_sports)
@@ -124,7 +146,7 @@ def extraer_odds(partido):
     away = partido.get("away_team","")
     h2h = {"home":None,"draw":None,"away":None}
     t_over, t_under = {}, {}
-    
+
     for bk in partido.get("bookmakers",[]):
         for mkt in bk.get("markets",[]):
             if mkt["key"] == "h2h":
@@ -138,7 +160,7 @@ def extraer_odds(partido):
                     pt = o.get("point", 2.5); p = o["price"]
                     if o["name"] == "Over" and (pt not in t_over or p > t_over[pt]): t_over[pt] = round(p,2)
                     elif o["name"] == "Under" and (pt not in t_under or p > t_under[pt]): t_under[pt] = round(p,2)
-                        
+
     return h2h, t_over, t_under
 
 def calcular_probs(h2h):
@@ -162,7 +184,7 @@ def fmt_fecha(iso, simple=False):
 
 def cruzar_datos(partido, dia_sports, api_sports_key):
     if not dia_sports: return "Sin datos API-Sports"
-    
+
     local_norm = partido['home_team'].lower()[:6]
     for p_sports in dia_sports:
         if local_norm in p_sports['teams']['home']['name'].lower():
@@ -184,7 +206,7 @@ def render_simplified_card(partido, idx=1):
     fecha = fmt_fecha(partido.get("commence_time",""))
     h2h, _, _ = extraer_odds(partido)
     probs = calcular_probs(h2h)
-    
+
     hp, dp, ap = probs["home"], probs["draw"], probs["away"]
     odd_h = f"@{h2h['home']}" if h2h.get('home') else "N/A"
     odd_d = f"@{h2h['draw']}" if h2h.get('draw') else "N/A"
@@ -233,11 +255,10 @@ st.markdown("""
   .stTextInput input { background:#161c2b !important; color:#e1e1e1 !important; border:1px solid #2d3748 !important; border-radius:10px !important; }
   [data-testid="stExpander"] { background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:12px !important; }
   [data-testid="stExpanderToggleIcon"] svg { fill:#00e676 !important; }
-  
-  /* Estilos específicos para cada botón */
+
   .btn-principal > button { background:linear-gradient(90deg,#00e676,#00b4d8) !important; border:none !important; border-radius:12px !important; color:#0d1117 !important; font-weight:800 !important; font-size:13px !important; width:100% !important; padding:0.6em !important; }
   .btn-avanzado > button { background:linear-gradient(90deg,#f59e0b,#ec4899) !important; border:none !important; border-radius:12px !important; color:#0d1117 !important; font-weight:800 !important; font-size:13px !important; width:100% !important; padding:0.6em !important; }
-  
+
   [data-testid="stCheckbox"] { background: #161c2b; padding: 10px 14px; border-radius: 8px; border: 1px solid #2d3748; margin-bottom: 5px; }
   [data-testid="stCheckbox"] label p { color: #e1e1e1 !important; font-size: 14px !important; }
   hr { border-color:#2d3748 !important; }
@@ -277,10 +298,10 @@ if upcoming_matches:
         home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
         away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
         hora = fmt_fecha(p['commence_time']).split(" · ")[1]
-        
+
         if st.toggle(f"⚽ **{home_es} vs {away_es}** *(🕒 {hora})*", key=p.get('id')):
             selected_matches.append(p)
-            
+
     for i, p in enumerate(selected_matches):
         st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
 
@@ -301,7 +322,7 @@ with col2:
 def obtener_datos_preparados():
     fecha_req = fmt_fecha(selected_matches[0]['commence_time'], simple=True)
     calendario_dia = obtener_calendario_apisports(fecha_req, api_sports)
-    
+
     formatted = []
     for p in selected_matches:
         h2h, t_over, t_under = extraer_odds(p)
@@ -314,14 +335,14 @@ def obtener_datos_preparados():
         })
     return formatted
 
-# ─── EJECUCIÓN BOTÓN 1: PRINCIPAL ───
+# ─── EJECUCIÓN BOTÓN 1: PRINCIPAL ───────────────────────────────────────
 if btn_principal:
     if not online: st.error("❌ Faltan Claves API.")
     elif not selected_matches: st.error("❌ Selecciona al menos un partido.")
     else:
         with st.spinner("📡 Obteniendo datos tácticos..."):
             formatted_matches = obtener_datos_preparados()
-            
+
         prompt = f"""
 Actúa como Analista Cuantitativo Deportivo. Evalúa SOLAMENTE el ganador y los goles basándote en estos datos: {json.dumps(formatted_matches)}
 
@@ -333,24 +354,20 @@ Responde ÚNICAMENTE con este JSON para cada partido:
   "mercado_goles": {{ "linea_exacta": "Over/Under", "gol_primer_tiempo": "Sí/No" }}
 }}
 """
+        # FIX 3: usar función cacheada con retry
         with st.spinner("🧠 Procesando Ganador y Goles (Modelo Rápido)..."):
             try:
-                client = genai.Client(api_key=api_gemini)
-                resp = client.models.generate_content(
-                    model="gemini-3.5-flash", # Modelo más permisivo con los límites
-                    contents=prompt,
-                    config=types.GenerateContentConfig(temperature=0.2, response_mime_type="application/json")
-                )
-                datos_ia = json.loads(resp.text)
+                respuesta_raw = llamar_gemini(prompt, api_gemini)
+                datos_ia = json.loads(respuesta_raw)
                 if isinstance(datos_ia, dict): datos_ia = [datos_ia]
-                
+
                 for analisis in datos_ia:
                     st.markdown(f"### 🛡️ {analisis.get('partido', 'Pronóstico')}")
                     st.markdown(f"<div style='background:#1e293b; padding:12px; border-left:4px solid #8b5cf6; border-radius:6px; color:#e1e1e1; font-size:13px; margin-bottom:16px;'><i>{analisis.get('analisis_general', '')}</i></div>", unsafe_allow_html=True)
-                    
+
                     st.markdown("<h5 style='color:#00e676;'>🏆 Mercado Principal</h5>", unsafe_allow_html=True)
                     st.info(f"**Resultado:** {analisis.get('mercado_principal', {}).get('1x2_o_doble', 'N/A')} | **Hándicap:** {analisis.get('mercado_principal', {}).get('handicap', 'N/A')}")
-                    
+
                     st.markdown("<h5 style='color:#00b4d8;'>⚽ Mercado Goles</h5>", unsafe_allow_html=True)
                     st.success(f"**Línea:** {analisis.get('mercado_goles', {}).get('linea_exacta', 'N/A')} | **Gol 1T:** {analisis.get('mercado_goles', {}).get('gol_primer_tiempo', 'N/A')}")
                     st.markdown("---")
@@ -361,14 +378,14 @@ Responde ÚNICAMENTE con este JSON para cada partido:
                 else:
                     st.error(f"❌ Error: {error_str}")
 
-# ─── EJECUCIÓN BOTÓN 2: AVANZADO ───
+# ─── EJECUCIÓN BOTÓN 2: AVANZADO ────────────────────────────────────────
 if btn_avanzado:
     if not online: st.error("❌ Faltan Claves API.")
     elif not selected_matches: st.error("❌ Selecciona al menos un partido.")
     else:
         with st.spinner("📡 Obteniendo datos tácticos..."):
             formatted_matches = obtener_datos_preparados()
-            
+
         prompt = f"""
 Actúa como Analista Cuantitativo Deportivo. Evalúa SOLAMENTE estadísticas secundarias (Córners, Tarjetas, Remates) y Props de Jugadores basándote en estos datos: {json.dumps(formatted_matches)}
 
@@ -379,23 +396,19 @@ Responde ÚNICAMENTE con este JSON para cada partido:
   "jugador_estrella": {{ "pick": "Jugador - Mercado", "justificacion": "Breve motivo estadístico" }}
 }}
 """
+        # FIX 3: usar función cacheada con retry
         with st.spinner("🧠 Procesando Mercados Secundarios..."):
             try:
-                client = genai.Client(api_key=api_gemini)
-                resp = client.models.generate_content(
-                    model="gemini-3.5-flash",
-                    contents=prompt,
-                    config=types.GenerateContentConfig(temperature=0.2, response_mime_type="application/json")
-                )
-                datos_ia = json.loads(resp.text)
+                respuesta_raw = llamar_gemini(prompt, api_gemini)
+                datos_ia = json.loads(respuesta_raw)
                 if isinstance(datos_ia, dict): datos_ia = [datos_ia]
-                
+
                 for analisis in datos_ia:
                     st.markdown(f"### 🔥 Stats: {analisis.get('partido', 'Pronóstico')}")
-                    
+
                     st.markdown("<h5 style='color:#f59e0b;'>📊 Estadísticas del Partido</h5>", unsafe_allow_html=True)
                     st.warning(f"**Córners:** {analisis.get('mercado_estadisticas', {}).get('corners', 'N/A')}\n\n**Tarjetas:** {analisis.get('mercado_estadisticas', {}).get('tarjetas', 'N/A')}\n\n**Remates a Puerta:** {analisis.get('mercado_estadisticas', {}).get('remates_puerta', 'N/A')}")
-                    
+
                     st.markdown("<h5 style='color:#ec4899;'>🎯 Prop de Jugador</h5>", unsafe_allow_html=True)
                     st.error(f"**Pick:** {analisis.get('jugador_estrella', {}).get('pick', 'N/A')}\n\n*{analisis.get('jugador_estrella', {}).get('justificacion', 'N/A')}*")
                     st.markdown("---")
