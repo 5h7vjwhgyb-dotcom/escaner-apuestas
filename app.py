@@ -141,8 +141,9 @@ def fmt_fecha(iso, simple=False):
         if simple: return dt.strftime('%Y-%m-%d')
         dias = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"]
         meses = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+        # Retorna ej: "Sáb 13 Jun · 19:00 UTC"
         return f"{dias[dt.isoweekday()%7]} {dt.day} {meses[dt.month]} · {dt.strftime('%H:%M')} UTC"
-    except: return "Fecha no disponible"
+    except: return "Fecha no disponible · 00:00 UTC"
 
 def render_simplified_card(partido, idx=1):
     home_en = partido.get("home_team","Local")
@@ -210,15 +211,12 @@ st.markdown("""
   section[data-testid="stSidebar"]    { display:none; }
   .block-container { padding-top:0.8rem !important; max-width:520px !important; }
 
-  label, .stTextInput label, .stTextArea label,
-  .stSelectbox label { color:#8b949e !important; font-size:12px !important; font-weight:600 !important; }
+  label, .stTextInput label, .stTextArea label { 
+      color:#8b949e !important; font-size:12px !important; font-weight:600 !important; 
+  }
   .stTextInput input, .stTextArea textarea {
     background:#161c2b !important; color:#e1e1e1 !important;
     border:1px solid #2d3748 !important; border-radius:10px !important; font-size:13px !important;
-  }
-  [data-testid="stSelectbox"] > div > div {
-    background:#161c2b !important; border:1px solid #2d3748 !important;
-    border-radius:10px !important; color:#e1e1e1 !important;
   }
   [data-testid="stExpander"] {
     background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:12px !important;
@@ -235,30 +233,48 @@ st.markdown("""
   
   .btn-actualizar > button {
     background:#2d3748 !important; color:#e1e1e1 !important;
-    font-size:12px !important; margin-top: 28px !important;
+    font-size:12px !important; margin-top: 25px !important;
   }
 
   [data-testid="stAlert"] { border-radius:12px !important; }
   hr { border-color:#2d3748 !important; }
   
-  /* PESTAÑAS BOTONES */
+  /* PESTAÑAS TABS INFERIORES */
   [data-testid="stTabs"] button {
     background-color: #161c2b !important; color: #8b949e !important;
     font-weight: 700 !important; border-radius: 8px !important;
     border: 1px solid #2d3748 !important; padding: 6px 16px !important; margin-right: 8px !important;
   }
-  [data-testid="stTabs"] button:hover {
-    background-color: #2d3748 !important; color: #e1e1e1 !important;
-  }
   [data-testid="stTabs"] button[aria-selected="true"] {
     background-color: #00e67615 !important; color: #00e676 !important;
     border: 1px solid #00e676 !important; box-shadow: 0 0 10px rgba(0,230,118,0.1) !important;
   }
+  
+  /* MAGIA CSS: CONVERTIR RADIO BUTTONS EN "PÍLDORAS" PARA LAS LIGAS */
+  div[role="radiogroup"] {
+      gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
+  }
+  div[role="radiogroup"] > label {
+      background: #161c2b !important; border: 1px solid #2d3748 !important; 
+      border-radius: 20px !important; padding: 8px 16px !important; cursor: pointer;
+  }
+  div[role="radiogroup"] > label[data-checked="true"] {
+      background: #00e67615 !important; border-color: #00e676 !important;
+  }
+  div[role="radiogroup"] > label span[data-baseweb="radio"] { display: none !important; }
+  div[role="radiogroup"] > label p { font-size: 13px !important; color: #8b949e !important; font-weight: 600 !important; margin: 0 !important; }
+  div[role="radiogroup"] > label[data-checked="true"] p { color: #00e676 !important; }
+  
+  /* ESTILOS PARA LOS TOGGLES DE PARTIDOS */
+  [data-testid="stCheckbox"] {
+      background: #161c2b; padding: 10px 14px; border-radius: 8px; 
+      border: 1px solid #2d3748; margin-bottom: 5px;
+  }
+  [data-testid="stCheckbox"] label p { color: #e1e1e1 !important; font-size: 14px !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ─── LECTURA DE SECRETS Y CLAVES ─────────────────────────────────
-# Lee de Streamlit Secrets. Si no existen, usa lo que el usuario ponga a mano.
 secret_gemini = st.secrets.get("GEMINI_API", "")
 secret_odds = st.secrets.get("ODDS_API", "")
 
@@ -284,7 +300,7 @@ st.markdown(f"""
 # ─── CONFIGURACIÓN ───────────────────────────────────────────────
 with st.expander("⚙️ Configuración — Claves API", expanded=not online):
     if secret_gemini and secret_odds:
-        st.success("✅ Claves API cargadas de forma permanente y segura desde la bóveda de Streamlit Secrets.")
+        st.success("✅ Claves cargadas de forma permanente.")
         api_gemini = secret_gemini
         api_odds = secret_odds
     else:
@@ -294,25 +310,24 @@ with st.expander("⚙️ Configuración — Claves API", expanded=not online):
         with c2:
             api_odds = st.text_input("Odds API Key", type="password", help="the-odds-api.com", key="_odd")
 
-# ─── SELECCIÓN DE LIGA Y BOTÓN ACTUALIZAR ────────────────────────
-col_liga, col_btn = st.columns([3, 1])
+# ─── SELECCIÓN DE LIGA (AHORA COMO BOTONES/PÍLDORAS) ─────────────
+st.markdown("<p style='color:#8b949e; font-size:12px; font-weight:600; margin-bottom:5px; margin-top:10px;'>🏆 Elige la Competición</p>", unsafe_allow_html=True)
 
+col_liga, col_btn = st.columns([4, 1])
 with col_liga:
-    liga_label = st.selectbox("🏆 Competición para analizar", list(LIGAS.keys()), index=0)
+    liga_label = st.radio("Liga", list(LIGAS.keys()), horizontal=True, label_visibility="collapsed")
     liga = LIGAS[liga_label]
 
 with col_btn:
     st.markdown('<div class="btn-actualizar">', unsafe_allow_html=True)
-    if st.button("🔄 Actualizar", help="Forzar descarga desde la API (gasta 1 petición)"):
+    if st.button("🔄 Refrescar"):
         if api_odds:
             obtener_partidos_api.clear(liga, api_odds)
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ─── LÓGICA DE CARGA (Usando Caché) ──────────────────────────────
+# ─── LÓGICA DE CARGA ──────────────────────────────
 upcoming_matches = []
-upcoming_matches_dict = {}
-restantes = "?"
 
 if api_odds:
     with st.spinner("🚀 Consultando cuotas en vivo..."):
@@ -321,11 +336,6 @@ if api_odds:
         if isinstance(resp, list) and len(resp) > 0:
             sorted_resp = sorted(resp, key=lambda x: x.get('commence_time', ''))
             upcoming_matches = sorted_resp[:6]
-            for p in upcoming_matches:
-                home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
-                away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
-                name = f"{fmt_fecha(p['commence_time'], simple=True)}: {home_es} vs {away_es}"
-                upcoming_matches_dict[name] = p
         elif isinstance(resp, dict) and resp.get("message"):
              st.error(f"❌ Odds API Error: {resp['message']}")
         else:
@@ -333,21 +343,44 @@ if api_odds:
 
 st.markdown("---")
 
-# ─── SELECCIÓN DE PARTIDOS ─────────────────────────────────────
-st.subheader("🎯 Selecciona de los próximos partidos")
+# ─── SELECCIÓN DE PARTIDOS (AGRUPADOS POR DÍA + INTERRUPTORES) ───
+st.subheader("🎯 Selecciona los partidos")
 
-if upcoming_matches_dict:
-    selected_match_names = st.multiselect(
-        "Selecciona hasta 6 partidos",
-        options=list(upcoming_matches_dict.keys()),
-        default=None,
-        help="La IA deducirá automáticamente el contexto (clima, bajas y situación del torneo)."
-    )
-    
-    selected_matches = [upcoming_matches_dict[name] for name in selected_match_names]
+selected_matches = []
 
+if upcoming_matches:
+    # 1. Agrupar partidos por día
+    partidos_por_dia = {}
+    for p in upcoming_matches:
+        fecha_str = fmt_fecha(p['commence_time'])
+        dia = fecha_str.split(" · ")[0]  # Ej: Sáb 13 Jun
+        hora = fecha_str.split(" · ")[1] # Ej: 19:00 UTC
+        
+        if dia not in partidos_por_dia:
+            partidos_por_dia[dia] = []
+        partidos_por_dia[dia].append((p, hora))
+        
+    # 2. Renderizar visualmente
+    for dia, lista in partidos_por_dia.items():
+        # Etiqueta de la Fecha
+        st.markdown(f"<div style='background:#1e293b; padding:6px 12px; border-radius:6px; color:#93c5fd; font-weight:800; font-size:13px; margin-top:16px; margin-bottom:8px; border-left:4px solid #3b82f6;'>📅 {dia}</div>", unsafe_allow_html=True)
+        
+        # Interruptores para los partidos
+        for p, hora in lista:
+            home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
+            away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
+            
+            # Usamos Toggle (Interruptor estilo iOS) 
+            label_partido = f"⚽ **{home_es} vs {away_es}** *(🕒 {hora})*"
+            # Generar un ID único por si el partido se repite o falla la API
+            unique_key = p.get('id', p['home_team'] + p['commence_time'])
+            
+            if st.toggle(label_partido, key=unique_key):
+                selected_matches.append(p)
+
+    # 3. Mostrar las tarjetas de los que encendió
     if selected_matches:
-        st.markdown("### 📊 Análisis del Mercado")
+        st.markdown("<br>### 📊 Análisis del Mercado", unsafe_allow_html=True)
         for i, p in enumerate(selected_matches):
             st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
             
@@ -358,8 +391,7 @@ if upcoming_matches_dict:
             unsafe_allow_html=True
         )
 else:
-    selected_matches = []
-    st.info("Ingresa tus claves API arriba para ver los próximos partidos disponibles.")
+    st.info("Ingresa tus claves API para ver los próximos partidos disponibles.")
 
 # ─── ANÁLISIS IA (100% AUTOMATIZADO) ─────────────────────────────
 st.markdown("---")
@@ -368,7 +400,7 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
     if not api_gemini:
         st.error("❌ Falta la Gemini API Key. Ponla en Configuración.")
     elif not selected_matches:
-        st.error("❌ Selecciona al menos un partido primero.")
+        st.error("❌ Enciende el interruptor de al menos un partido arriba.")
     else:
         formatted_matches = []
         for p in selected_matches:
@@ -386,7 +418,7 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
             }
             formatted_matches.append(p_data)
 
-        # EL SÚPER PROMPT: La IA deduce el contexto por sí sola
+        # EL SÚPER PROMPT
         prompt = f"""
 Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
 Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
