@@ -81,10 +81,16 @@ def obtener_partidos_api(liga, api_key):
            f"?apiKey={api_key}&regions=eu&markets=h2h,totals")
     try:
         resp_raw = requests.get(url, timeout=10)
+        # Validar código de estado
+        if resp_raw.status_code != 200:
+            return {"error": f"Error {resp_raw.status_code}: {resp_raw.text}"}, None
         restantes = resp_raw.headers.get("x-requests-remaining", "?")
         return resp_raw.json(), restantes
-    except Exception as e:
-        return {"message": str(e)}, "?"
+    except requests.exceptions.RequestException as e:
+        return {"error": f"Error de conexión: {str(e)}"}, None
+
+# Variable global para saber si los datos son frescos o cache
+datos_frescos = False
 
 # ═══════════════════════════════════════════════
 # HELPERS
@@ -143,16 +149,25 @@ def mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es):
     return max(cands, key=lambda x: x["prob"]) if cands else None
 
 def fmt_fecha(iso, simple=False):
+    """Convierte fecha ISO a formato legible en zona horaria de Chile."""
     try:
+        # Intento con reemplazo de 'Z' y manejo de offsets
         dt = datetime.fromisoformat(iso.replace("Z","+00:00"))
+    except ValueError:
+        try:
+            # Si falla, asumir UTC sin offset explícito
+            dt = datetime.fromisoformat(iso).replace(tzinfo=timezone.utc)
+        except:
+            return "Fecha no disponible · 00:00 (Chile)"
+    try:
         dt_chile = dt.astimezone(TZ_CHILE)
-        
-        if simple: return dt_chile.strftime('%Y-%m-%d')
+        if simple:
+            return dt_chile.strftime('%Y-%m-%d')
         dias = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"]
         meses = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
-        
         return f"{dias[dt_chile.isoweekday()%7]} {dt_chile.day} {meses[dt_chile.month]} · {dt_chile.strftime('%H:%M')} (Chile)"
-    except: return "Fecha no disponible · 00:00 (Chile)"
+    except:
+        return "Fecha no disponible · 00:00 (Chile)"
 
 def render_simplified_card(partido, idx=1):
     home_en = partido.get("home_team","Local")
@@ -287,9 +302,21 @@ st.markdown("""
 secret_gemini = st.secrets.get("GEMINI_API", "")
 secret_odds = st.secrets.get("ODDS_API", "")
 
-api_gemini_ss = secret_gemini or st.session_state.get("_gem","")
-api_odds_ss   = secret_odds or st.session_state.get("_odd","")
-online = bool(api_gemini_ss and api_odds_ss)
+# Inicializar variables para claves
+api_gemini = ""
+api_odds = ""
+
+# Si existen en secrets, las usamos directamente
+if secret_gemini and secret_odds:
+    api_gemini = secret_gemini
+    api_odds = secret_odds
+    online = True
+else:
+    # Si no, revisamos session_state
+    api_gemini = st.session_state.get("_gem", "")
+    api_odds = st.session_state.get("_odd", "")
+    online = bool(api_gemini and api_odds)
+
 dot    = "🟢" if online else "🔴"
 badge  = "EN LÍNEA" if online else "SIN CONEXIÓN"
 bcol   = "#22c55e" if online else "#ef4444"
@@ -307,17 +334,17 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ─── CONFIGURACIÓN ───────────────────────────────────────────────
-with st.expander("⚙️ Configuración — Claves API", expanded=not online):
-    if secret_gemini and secret_odds:
-        st.success("✅ Claves cargadas de forma permanente.")
-        api_gemini = secret_gemini
-        api_odds = secret_odds
-    else:
+if not (secret_gemini and secret_odds):
+    with st.expander("⚙️ Configuración — Claves API", expanded=not online):
         c1, c2 = st.columns(2)
         with c1:
             api_gemini = st.text_input("Gemini API Key", type="password", help="aistudio.google.com", key="_gem")
         with c2:
             api_odds = st.text_input("Odds API Key", type="password", help="the-odds-api.com", key="_odd")
+else:
+    # Mostrar igual el expander pero colapsado y con mensaje de éxito
+    with st.expander("⚙️ Configuración — Claves API", expanded=False):
+        st.success("✅ Claves cargadas de forma permanente desde secrets.")
 
 # ─── SELECCIÓN DE LIGA (AHORA COMO BOTONES/PÍLDORAS) ─────────────
 st.markdown("<p style='color:#8b949e; font-size:12px; font-weight:600; margin-bottom:5px; margin-top:10px;'>🏆 Elige la Competición</p>", unsafe_allow_html=True)
@@ -337,18 +364,26 @@ with col_btn:
 
 # ─── LÓGICA DE CARGA ──────────────────────────────
 upcoming_matches = []
+restantes = None
+datos_frescos = False
 
 if api_odds:
     with st.spinner("🚀 Consultando cuotas en vivo..."):
         resp, restantes = obtener_partidos_api(liga, api_odds)
-        
+        # Si no hay error y es una lista
         if isinstance(resp, list) and len(resp) > 0:
+            datos_frescos = True  # Asumimos que si no se usó caché, se marcará como fresco
             sorted_resp = sorted(resp, key=lambda x: x.get('commence_time', ''))
             upcoming_matches = sorted_resp[:6]
-        elif isinstance(resp, dict) and resp.get("message"):
-             st.error(f"❌ Odds API Error: {resp['message']}")
+        elif isinstance(resp, dict):
+            if resp.get("error"):
+                st.error(f"❌ {resp['error']}")
+            elif resp.get("message"):
+                st.error(f"❌ Odds API: {resp['message']}")
+            else:
+                st.warning("⚠️ No se encontraron próximos partidos para esta competición.")
         else:
-             st.warning("⚠️ No se encontraron próximos partidos para esta competición.")
+            st.warning("⚠️ Respuesta inesperada de la API.")
 
 st.markdown("---")
 
@@ -375,23 +410,27 @@ if upcoming_matches:
             home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
             away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
             
-            label_partido = f"⚽ **{home_es} vs {away_es}** *(🕒 {hora})*"
+            # Texto plano sin Markdown
+            label_plano = f"⚽ {home_es} vs {away_es}   🕒 {hora}"
             unique_key = p.get('id', p['home_team'] + p['commence_time'])
             
-            if st.toggle(label_partido, key=unique_key):
+            if st.toggle(label_plano, key=unique_key):
                 selected_matches.append(p)
 
     if selected_matches:
         st.markdown("<br>### 📊 Análisis del Mercado", unsafe_allow_html=True)
         for i, p in enumerate(selected_matches):
             st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
-            
-        st.markdown(
-            f'<div style="color:#6b7280;font-size:10px;text-align:right;'
-            f'margin-top:-8px;margin-bottom:10px;">'
-            f'⚡ Peticiones restantes: <strong style="color:#e1e1e1;">{restantes}</strong>/500</div>',
-            unsafe_allow_html=True
-        )
+        
+        # Mostrar peticiones restantes con indicación de si es fresco o cache
+        if restantes:
+            cache_msg = "🔄 Dato cacheado (no actual)" if not datos_frescos else "⚡ Actualizado"
+            st.markdown(
+                f'<div style="color:#6b7280;font-size:10px;text-align:right;'
+                f'margin-top:-8px;margin-bottom:10px;">'
+                f'{cache_msg} · Peticiones restantes: <strong style="color:#e1e1e1;">{restantes}</strong>/500</div>',
+                unsafe_allow_html=True
+            )
 else:
     st.info("Ingresa tus claves API para ver los próximos partidos disponibles.")
 
@@ -475,7 +514,7 @@ DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura ex
             try:
                 client = genai.Client(api_key=api_gemini)
                 resp = client.models.generate_content(
-                    model="gemini-3.5-flash",
+                    model="gemini-2.0-flash",  # Cambiado a modelo estable
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         max_output_tokens=4096, 
@@ -527,7 +566,6 @@ DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura ex
 </div>""", unsafe_allow_html=True)
                         
             except Exception as e:
-                # MANEJADOR DE ERRORES AMIGABLE
                 error_msg = str(e)
                 if "503" in error_msg or "high demand" in error_msg.lower() or "unavailable" in error_msg.lower():
                     st.warning("⏳ Los servidores de Inteligencia Artificial de Google están experimentando mucha demanda en este instante. Por favor, espera unos segundos y vuelve a presionar el botón verde.")
