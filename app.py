@@ -73,9 +73,9 @@ LIGAS = {
 }
 
 # ═══════════════════════════════════════════════
-# FUNCIÓN CON CACHÉ PARA LA API DE ODDS (ACTUALIZADA)
+# FUNCIÓN CON CACHÉ DE DISCO PARA LA API DE ODDS
 # ═══════════════════════════════════════════════
-@st.cache_data(ttl=43200, show_spinner=False)
+@st.cache_data(ttl=21600, persist="disk", show_spinner=False)
 def obtener_partidos_api(liga, api_key):
     mercados = "h2h,totals,spreads,btts,player_goalscorer,corners_match,cards_match"
     url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
@@ -88,6 +88,24 @@ def obtener_partidos_api(liga, api_key):
         return {"message": str(e)}, "?"
 
 # ═══════════════════════════════════════════════
+# FUNCIÓN CON CACHÉ DE DISCO PARA LA IA (GEMINI)
+# ═══════════════════════════════════════════════
+@st.cache_data(ttl=86400, persist="disk", show_spinner=False)
+def obtener_analisis_ia(api_key, prompt, id_combinacion):
+    # La variable id_combinacion actúa como "llave" única del caché
+    client = genai.Client(api_key=api_key)
+    resp = client.models.generate_content(
+        model="gemini-2.0-flash", 
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            max_output_tokens=4096, 
+            temperature=0.2,
+            response_mime_type="application/json"
+        )
+    )
+    return json.loads(resp.text)
+
+# ═══════════════════════════════════════════════
 # HELPERS
 # ═══════════════════════════════════════════════
 def flag(team): return BANDERAS.get(team, "🏳️")
@@ -97,7 +115,7 @@ def extraer_odds(partido):
     away = partido.get("away_team","")
     h2h = {"home":None,"draw":None,"away":None}
     t_over, t_under = {}, {}
-    otros_mercados = {} # Contenedor dinámico para nuevos mercados
+    otros_mercados = {} 
     
     for bk in partido.get("bookmakers",[]):
         for mkt in bk.get("markets",[]):
@@ -119,7 +137,6 @@ def extraer_odds(partido):
                     else:
                         if pt not in t_under or p > t_under[pt]: t_under[pt] = round(p,2)
             else:
-                # Captura Spreads, BTTS, Tarjetas, Córners y Jugadores
                 if mk_key not in otros_mercados:
                     otros_mercados[mk_key] = {}
                 
@@ -130,7 +147,6 @@ def extraer_odds(partido):
                     label = f"{nombre} {punto} {desc}".strip()
                     precio = round(o["price"], 2)
                     
-                    # Guarda solo la mejor cuota para cada opción específica
                     if label not in otros_mercados[mk_key] or precio > otros_mercados[mk_key][label]:
                         otros_mercados[mk_key][label] = precio
                         
@@ -180,10 +196,7 @@ def render_simplified_card(partido, idx=1):
     away_es = TRADUCCIONES.get(away_en, away_en)
     
     fecha = fmt_fecha(partido.get("commence_time",""))
-    
-    # Se agrega el "_" para ignorar los otros_mercados en la vista resumida
-    h2h, t_over, t_under, _ = extraer_odds(partido) 
-    
+    h2h, t_over, t_under, _ = extraer_odds(partido)
     probs = calcular_probs(h2h)
     best = mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es)
     
@@ -304,8 +317,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─── LECTURA DE SECRETS Y CLAVES ─────────────────────────────────
-secret_gemini = st.secrets.get("GEMINI_API", "")
-secret_odds = st.secrets.get("ODDS_API", "")
+try:
+    secret_gemini = st.secrets.get("GEMINI_API", "")
+    secret_odds = st.secrets.get("ODDS_API", "")
+except FileNotFoundError:
+    secret_gemini = ""
+    secret_odds = ""
 
 api_gemini_ss = secret_gemini or st.session_state.get("_gem","")
 api_odds_ss   = secret_odds or st.session_state.get("_odd","")
@@ -373,15 +390,16 @@ if upcoming_matches:
             if st.toggle(f"⚽ **{home_es} vs {away_es}** *(🕒 {hora})*", key=p.get('id', p['home_team']+p['commence_time'])):
                 selected_matches.append(p)
 
-        if selected_matches:
+    if selected_matches:
         st.markdown("<br>### 📊 Análisis del Mercado", unsafe_allow_html=True)
-        for i, p in enumerate(selected_matches): st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
+        for i, p in enumerate(selected_matches): 
+            st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
 else:
-    # NUEVO: Lógica que muestra el error real de la API si existe
+    # Lógica que muestra el error real de la API si existe
     if api_odds and isinstance(resp, dict) and "message" in resp:
         st.error(f"❌ El servidor de The-Odds-API dice: {resp['message']}")
     elif api_odds:
-        st.warning("⚠️ La conexión fue exitosa, pero no hay partidos con cuotas disponibles para esta liga en este momento. Cambia de liga arriba.")
+        st.warning("⚠️ La conexión fue exitosa, pero no hay partidos con cuotas disponibles para esta liga en este momento. Intenta elegir otra competición arriba.")
     else:
         st.info("Ingresa tus claves API para ver los próximos partidos disponibles.")
 
@@ -408,116 +426,88 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
         # Identificador único de la combinación de partidos seleccionados
         id_combinacion = ",".join(sorted(partidos_ids))
 
-        # Inicializar el almacén local en la RAM (Session State) si no existe
-        if "base_datos_analisis" not in st.session_state:
-            st.session_state["base_datos_analisis"] = {}
+        # EL SÚPER PROMPT CON REGLAS ESTRICTAS DE CUOTAS Y SELECCIONES
+        prompt = f"""
+        Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
+        Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
 
-        # 🔄 LÓGICA DE BASE DE DATOS LOCAL
-        analisis_previo = st.session_state["base_datos_analisis"].get(id_combinacion)
+        Competición: {liga_label}
+        Datos de los partidos (Cuotas 1X2, Goles, Córners, Tarjetas, Hándicaps, Jugadores):
+        {formatted_matches}
 
-        data = None
-        origen_datos = ""
+        INSTRUCCIONES DE MERCADOS PERMITIDOS Y FILTRADO:
+        Tienes total libertad para elegir los picks más eficientes matemáticamente basándote en la lista de datos. Puedes proponer selecciones de:
+        - Ganador (1X2) y Doble Oportunidad (1X, X2, 12) (Deduce la doble oportunidad combinando cuotas).
+        - Goles Totales o por Equipo (Over/Under desde 0.5 hasta 5.5).
+        - Ambos Equipos Anotan (Sí/No).
+        - Hándicaps Asiáticos.
+        - Actuación de Jugadores (Anota Gol, Remates, etc., si están disponibles en los datos).
+        - Córners y Tarjetas (Más/Menos).
 
-        if analisis_previo:
-            data = analisis_previo
-            origen_datos = "📥 Algoritmo Optimizado: Recuperado desde Base de Datos Local (0 tokens gastados)"
-        else:
-            origen_datos = "🧠 Algoritmo Quant: Ejecutando simulación predictiva y guardando en historial"
-            
-            # EL SÚPER PROMPT CON REGLAS ESTRICTAS DE CUOTAS Y SELECCIONES
-            prompt = f"""
-            Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
-            Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
+        Genera exactamente 3 estrategias estructuradas respetando estos límites:
 
-            Competición: {liga_label}
-            Datos de los partidos (Cuotas 1X2, Goles, Córners, Tarjetas, Hándicaps, Jugadores):
-            {formatted_matches}
+        1. Estrategia 1: "🛡️ La Apuesta Segura (Bajo Riesgo)"
+           - Cuota Total Permitida: Mínimo @1.15 hasta Máximo @1.40.
+           - Cantidad de Selecciones: De 1 a 2 picks. (Sugerencia: Dobles oportunidades, Over 0.5 o 1.5, Hándicaps amplios).
 
-            INSTRUCCIONES DE MERCADOS PERMITIDOS Y FILTRADO:
-            Tienes total libertad para elegir los picks más eficientes matemáticamente basándote en la lista de datos. Puedes proponer selecciones de:
-            - Ganador (1X2) y Doble Oportunidad (1X, X2, 12) (Deduce la doble oportunidad combinando cuotas).
-            - Goles Totales o por Equipo (Over/Under desde 0.5 hasta 5.5).
-            - Ambos Equipos Anotan (Sí/No).
-            - Hándicaps Asiáticos.
-            - Actuación de Jugadores (Anota Gol, Remates, etc., si están disponibles en los datos).
-            - Córners y Tarjetas (Más/Menos).
+        2. Estrategia 2: "⚖️ La Apuesta Moderada (Riesgo Medio)"
+           - Cuota Total Permitida: Mínimo @2.35 hasta Máximo @4.20.
+           - Cantidad de Selecciones: De 2 a 4 picks. (Sugerencia: Ganador directo, Over 2.5, Córners, Ambos Anotan).
 
-            Genera exactamente 3 estrategias estructuradas respetando estos límites:
+        3. Estrategia 3: "🔥 La Apuesta Arriesgada (Alta Cuota)"
+           - Cuota Total Permitida: Mínimo @4.25 hasta Máximo @8.95.
+           - Cantidad de Selecciones: De 3 a 7 picks. (Sugerencia: Goleadores, Combinaciones de mercados, Hándicaps agresivos).
 
-            1. Estrategia 1: "🛡️ La Apuesta Segura (Bajo Riesgo)"
-               - Cuota Total Permitida: Mínimo @1.15 hasta Máximo @1.40.
-               - Cantidad de Selecciones: De 1 a 2 picks. (Sugerencia: Dobles oportunidades, Over 0.5 o 1.5, Hándicaps amplios).
+        DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura exacta:
 
-            2. Estrategia 2: "⚖️ La Apuesta Moderada (Riesgo Medio)"
-               - Cuota Total Permitida: Mínimo @2.35 hasta Máximo @4.20.
-               - Cantidad de Selecciones: De 2 a 4 picks. (Sugerencia: Ganador directo, Over 2.5, Córners, Ambos Anotan).
-
-            3. Estrategia 3: "🔥 La Apuesta Arriesgada (Alta Cuota)"
-               - Cuota Total Permitida: Mínimo @4.25 hasta Máximo @8.95.
-               - Cantidad de Selecciones: De 3 a 7 picks. (Sugerencia: Goleadores, Combinaciones de mercados, Hándicaps agresivos).
-
-            DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura exacta:
-
+        {{
+          "game_script": "Explica brevemente el contexto deducido (torneo, clima, táctica) y cómo afectará el partido.",
+          "estrategias": [
             {{
-              "game_script": "Explica brevemente el contexto deducido (torneo, clima, táctica) y cómo afectará el partido.",
-              "estrategias": [
-                {{
-                  "nivel": "🛡️ La Apuesta Segura (Protección de Bankroll)",
-                  "picks": [
-                    {{"partido": "Local vs Visita", "seleccion": "Mercado elegido (ej. Over 1.5 Goles o Doble Oportunidad)", "cuota": "1.30"}}
-                  ],
-                  "cuota_total": "1.30",
-                  "justificacion": "Análisis de por qué tiene valor..."
-                }},
-                {{
-                  "nivel": "⚖️ La Apuesta Moderada (Valor Esperado +EV)",
-                  "picks": [
-                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.80"}},
-                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.50"}}
-                  ],
-                  "cuota_total": "2.70",
-                  "justificacion": "Tesis táctica del pick..."
-                }},
-                {{
-                  "nivel": "🔥 La Apuesta Arriesgada (Ineficiencia de Mercado)",
-                  "picks": [
-                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "2.50"}},
-                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "2.00"}}
-                  ],
-                  "cuota_total": "5.00",
-                  "justificacion": "Explicación del riesgo y recompensa matemática..."
-                }}
-              ]
+              "nivel": "🛡️ La Apuesta Segura (Protección de Bankroll)",
+              "picks": [
+                {{"partido": "Local vs Visita", "seleccion": "Mercado elegido", "cuota": "1.30"}}
+              ],
+              "cuota_total": "1.30",
+              "justificacion": "Análisis de por qué tiene valor..."
+            }},
+            {{
+              "nivel": "⚖️ La Apuesta Moderada (Valor Esperado +EV)",
+              "picks": [
+                {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.80"}},
+                {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.50"}}
+              ],
+              "cuota_total": "2.70",
+              "justificacion": "Tesis táctica del pick..."
+            }},
+            {{
+              "nivel": "🔥 La Apuesta Arriesgada (Ineficiencia de Mercado)",
+              "picks": [
+                {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "2.50"}},
+                {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "2.00"}}
+              ],
+              "cuota_total": "5.00",
+              "justificacion": "Explicación del riesgo y recompensa matemática..."
             }}
-            """
-            with st.spinner("🧠 Deduciendo contexto táctico y calculando Valor Esperado..."):
-                try:
-                    # CAMBIO A LA VERSIÓN OFICIAL PARA EVITAR EL ERROR 429
-                    client = genai.Client(api_key=api_gemini)
-                    resp = client.models.generate_content(
-                        model="gemini-3.1-flash-lite",
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            max_output_tokens=4096, 
-                            temperature=0.2,
-                            response_mime_type="application/json"
-                        )
-                    )
-                    
-                    data = json.loads(resp.text)
-                    
-                    # Guardar el nuevo análisis en la memoria RAM
-                    st.session_state["base_datos_analisis"][id_combinacion] = data
-                    
-                except Exception as e:
-                    # ESCUDO AMIGABLE PARA ERRORES DE LÍMITE (429) Y SATURACIÓN (503)
-                    error_msg = str(e)
-                    if "429" in error_msg or "quota" in error_msg.lower() or "exhausted" in error_msg.lower():
-                        st.warning("⏳ Has alcanzado el límite de consultas rápidas de la IA. Por favor, espera 1 minuto exacto y vuelve a intentarlo.")
-                    elif "503" in error_msg or "high demand" in error_msg.lower() or "unavailable" in error_msg.lower():
-                        st.warning("⏳ Los servidores de Inteligencia Artificial de Google están experimentando mucha demanda en este instante. Por favor, espera unos segundos y vuelve a presionar el botón verde.")
-                    else:
-                        st.error(f"❌ Error al procesar respuesta de la IA. Intenta de nuevo. Detalle: {e}")
+          ]
+        }}
+        """
+        
+        data = None
+        origen_datos = "📥 Análisis cargado y procesado exitosamente (Sistema de Caché Activo)"
+        
+        with st.spinner("🧠 Consultando IA o recuperando desde Caché Local..."):
+            try:
+                # Llama a la función cacheada
+                data = obtener_analisis_ia(api_gemini, prompt, id_combinacion)
+            except Exception as e:
+                error_msg = str(e)
+                if "429" in error_msg or "quota" in error_msg.lower() or "exhausted" in error_msg.lower():
+                    st.warning("⏳ Has alcanzado el límite de consultas rápidas de la IA. Por favor, espera 1 minuto exacto y vuelve a intentarlo.")
+                elif "503" in error_msg or "high demand" in error_msg.lower() or "unavailable" in error_msg.lower():
+                    st.warning("⏳ Los servidores de Google están experimentando mucha demanda. Por favor, espera unos segundos y vuelve a presionar el botón verde.")
+                else:
+                    st.error(f"❌ Error al procesar respuesta de la IA. Detalle: {e}")
 
         # RENDERIZAR RESULTADO FINAL
         if data:
