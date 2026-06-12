@@ -5,9 +5,8 @@ from google.genai import types
 from datetime import datetime, timezone, timedelta
 import math
 import json
-import time 
 
-# Manejo seguro de Zona Horaria de Chile
+# Manejo seguro de Zona Horaria de Chile (Soporta verano/invierno nativamente)
 try:
     from zoneinfo import ZoneInfo
     TZ_CHILE = ZoneInfo("America/Santiago")
@@ -147,15 +146,18 @@ def fmt_fecha(iso, simple=False):
     try:
         dt = datetime.fromisoformat(iso.replace("Z","+00:00"))
         dt_chile = dt.astimezone(TZ_CHILE)
+        
         if simple: return dt_chile.strftime('%Y-%m-%d')
         dias = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"]
         meses = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+        
         return f"{dias[dt_chile.isoweekday()%7]} {dt_chile.day} {meses[dt_chile.month]} · {dt_chile.strftime('%H:%M')} (Chile)"
     except: return "Fecha no disponible · 00:00 (Chile)"
 
 def render_simplified_card(partido, idx=1):
     home_en = partido.get("home_team","Local")
     away_en = partido.get("away_team","Visita")
+    
     home_es = TRADUCCIONES.get(home_en, home_en)
     away_es = TRADUCCIONES.get(away_en, away_en)
     
@@ -163,6 +165,7 @@ def render_simplified_card(partido, idx=1):
     h2h, t_over, t_under = extraer_odds(partido)
     probs = calcular_probs(h2h)
     best = mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es)
+    
     hp, dp, ap = probs["home"], probs["draw"], probs["away"]
     
     odd_h = f"@{h2h['home']}" if h2h.get('home') else "N/A"
@@ -355,22 +358,13 @@ if upcoming_matches:
 else:
     st.info("Ingresa tus claves API para ver los próximos partidos disponibles.")
 
-# ─── ANÁLISIS IA SEGURO ─────────────────────────────
+# ─── ANÁLISIS IA AUTOMATIZADO CON LÍMITES MATEMÁTICOS Y CACHÉ LOCAL ───
 st.markdown("---")
-
-if "last_api_call" not in st.session_state:
-    st.session_state["last_api_call"] = 0
-if "base_datos_analisis" not in st.session_state:
-    st.session_state["base_datos_analisis"] = {}
 
 if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
     if not api_gemini: st.error("❌ Falta la Gemini API Key.")
     elif not selected_matches: st.error("❌ Enciende el interruptor de al menos un partido.")
     else:
-        tiempo_actual = time.time()
-        tiempo_pasado = tiempo_actual - st.session_state["last_api_call"]
-        cooldown_necesario = 5 
-        
         formatted_matches = []
         partidos_ids = []
         for p in selected_matches:
@@ -383,45 +377,67 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
                 "cuotas_1x2": h2h, "goles_over": t_over, "goles_under": t_under
             })
 
+        # Identificador único de la combinación de partidos seleccionados
         id_combinacion = ",".join(sorted(partidos_ids))
+
+        # Inicializar el almacén local en la RAM (Session State) si no existe
+        if "base_datos_analisis" not in st.session_state:
+            st.session_state["base_datos_analisis"] = {}
+
+        # 🔄 LÓGICA DE BASE DE DATOS LOCAL
         analisis_previo = st.session_state["base_datos_analisis"].get(id_combinacion)
 
         data = None
         origen_datos = ""
-        error_capturado = ""
 
         if analisis_previo:
             data = analisis_previo
-            origen_datos = "📥 Recuperado desde Memoria Caché Local (0 tokens gastados)"
-        elif tiempo_pasado < cooldown_necesario:
-            segundos_restantes = int(cooldown_necesario - tiempo_pasado)
-            st.warning(f"⏳ El algoritmo está enfriándose. Por favor, espera **{segundos_restantes} segundos**.")
+            origen_datos = "📥 Algoritmo Optimizado: Recuperado desde Base de Datos Local (0 tokens gastados)"
         else:
+            origen_datos = "🧠 Algoritmo Quant: Ejecutando simulación predictiva y guardando en historial"
+            
+            # EL SÚPER PROMPT CON REGLAS ESTRICTAS DE CUOTAS Y SELECCIONES
             prompt = f"""
-            Actúa como un Analista Cuantitativo Deportivo (Quant).
-            Encuentra ineficiencias de mercado basándote en estas cuotas:
+            Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
+            Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
+
+            Competición: {liga_label}
+            Datos de los partidos (Cuotas reales 1X2 y Goles):
             {formatted_matches}
 
-            INSTRUCCIONES DE FILTRADO OBLIGATORIO:
-            1. Estrategia 1 (Segura): Cuota Total Permitida @1.15 hasta @1.40. De 1 a 2 selecciones.
-            2. Estrategia 2 (Moderada): Cuota Total Permitida @2.35 hasta @4.20. De 2 a 4 selecciones.
-            3. Estrategia 3 (Arriesgada): Cuota Total Permitida @4.25 hasta @8.95. De 5 a 7 selecciones.
+            INSTRUCCIONES DE FILTRADO OBLIGATORIO (REGLAS DE NEGOCIO):
+            Deduce el contexto táctico e histórico de los partidos. Genera exactamente 3 estrategias estructuradas que cumplan estrictamente con estos límites matemáticos de cuotas y combinaciones:
+
+            1. Estrategia 1: "🛡️ La Apuesta Segura (Bajo Riesgo)"
+               - Cuota Total Permitida: Mínimo @1.15 hasta Máximo @1.40.
+               - Cantidad de Selecciones: De 1 a 2 selecciones (picks). Puede ser del mismo partido o combinando varios partidos de la lista provista.
+
+            2. Estrategia 2: "⚖️ La Apuesta Moderada (Riesgo Medio)"
+               - Cuota Total Permitida: Mínimo @2.35 hasta Máximo @4.20.
+               - Cantidad de Selecciones: De 2 a 4 selecciones (picks) mezclando 1 o más partidos de la lista provista.
+
+            3. Estrategia 3: "🔥 La Apuesta Arriesgada (Alta Cuota)"
+               - Cuota Total Permitida: Mínimo @4.25 hasta Máximo @8.95.
+               - Cantidad de Selecciones: De 5 a 7 selecciones (picks) de micro-probabilidad, mezclando 1 o más partidos de la lista provista.
 
             DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura exacta:
+
             {{
-              "game_script": "Explica brevemente el contexto deducido (máx 4 líneas).",
+              "game_script": "Explica brevemente el contexto que has deducido (torneo, clima estimado, situación táctica) y cómo afectará el ritmo de juego (máx 4 líneas).",
               "estrategias": [
                 {{
                   "nivel": "🛡️ La Apuesta Segura (Protección de Bankroll)",
-                  "picks": [ {{"partido": "A vs B", "seleccion": "Mercado elegido", "cuota": "1.30"}} ],
+                  "picks": [
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado elegido", "cuota": "1.30"}}
+                  ],
                   "cuota_total": "1.30",
-                  "justificacion": "Análisis cuantitativo de esta cuota..."
+                  "justificacion": "Análisis cuantitativo de por qué esta cuota tiene valor real..."
                 }},
                 {{
                   "nivel": "⚖️ La Apuesta Moderada (Valor Esperado +EV)",
                   "picks": [
-                    {{"partido": "A vs B", "seleccion": "Mercado", "cuota": "1.80"}},
-                    {{"partido": "C vs D", "seleccion": "Mercado", "cuota": "1.50"}}
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.80"}},
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.50"}}
                   ],
                   "cuota_total": "2.70",
                   "justificacion": "Tesis táctica del pick..."
@@ -429,54 +445,43 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
                 {{
                   "nivel": "🔥 La Apuesta Arriesgada (Ineficiencia de Mercado)",
                   "picks": [
-                    {{"partido": "A vs B", "seleccion": "Mercado", "cuota": "1.50"}},
-                    {{"partido": "C vs D", "seleccion": "Mercado", "cuota": "1.40"}},
-                    {{"partido": "E vs F", "seleccion": "Mercado", "cuota": "1.30"}},
-                    {{"partido": "G vs H", "seleccion": "Mercado", "cuota": "1.50"}},
-                    {{"partido": "I vs J", "seleccion": "Mercado", "cuota": "1.20"}}
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.50"}},
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.40"}},
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.30"}},
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.50"}},
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.20"}}
                   ],
                   "cuota_total": "5.67",
-                  "justificacion": "Explicación del riesgo y recompensa..."
+                  "justificacion": "Explicación del riesgo y recompensa matemática..."
                 }}
               ]
             }}
             """
-            
-            # USO EXCLUSIVO Y SEGURO DE LOS MODELOS REALES 1.5
-            modelos_a_probar = ["gemini-1.5-flash", "gemini-1.5-flash-8b"]
-            exito = False
-            
-            # Interfaz de carga segura sin parpadeos que rompan el celular
-            with st.spinner("🧠 Ejecutando Algoritmo Quant (Analizando cuotas y calculando valor esperado)..."):
-                client = genai.Client(api_key=api_gemini)
-                for modelo in modelos_a_probar:
-                    try:
-                        resp = client.models.generate_content(
-                            model=modelo,
-                            contents=prompt,
-                            config=types.GenerateContentConfig(
-                                max_output_tokens=4096, 
-                                temperature=0.2,
-                                response_mime_type="application/json"
-                            )
+            with st.spinner("🧠 Deduciendo contexto táctico y calculando Valor Esperado..."):
+                try:
+                    client = genai.Client(api_key=api_gemini)
+                    resp = client.models.generate_content(
+                        model="gemini-3.5-flash",  # MANTENIDO TAL CUAL LO SOLICITASTE
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            max_output_tokens=4096, 
+                            temperature=0.2,
+                            response_mime_type="application/json"
                         )
-                        data = json.loads(resp.text)
-                        st.session_state["base_datos_analisis"][id_combinacion] = data
-                        st.session_state["last_api_call"] = time.time()
-                        origen_datos = f"🧠 Algoritmo Quant ({modelo}): Simulación exitosa"
-                        exito = True
-                        break 
-                    except Exception as e:
-                        error_capturado = str(e)
-                        time.sleep(2) 
-                
-                if not exito:
-                    if "429" in error_capturado or "quota" in error_capturado.lower():
-                        st.warning("⏳ Límite de consultas de Google alcanzado. Por favor, espera 1 minuto.")
-                    elif "503" in error_capturado or "unavailable" in error_capturado.lower():
-                        st.warning("⏳ Los servidores de Google están experimentando mucha demanda. Por favor, intenta de nuevo en unos minutos.")
+                    )
+                    
+                    data = json.loads(resp.text)
+                    
+                    # Guardar el nuevo análisis en la memoria RAM para futuras consultas instantáneas
+                    st.session_state["base_datos_analisis"][id_combinacion] = data
+                    
+                except Exception as e:
+                    # MANEJADOR DE ERRORES AMIGABLE
+                    error_msg = str(e)
+                    if "503" in error_msg or "high demand" in error_msg.lower() or "unavailable" in error_msg.lower():
+                        st.warning("⏳ Los servidores de Inteligencia Artificial de Google están experimentando mucha demanda en este instante. Por favor, espera unos segundos y vuelve a presionar el botón verde.")
                     else:
-                        st.error(f"❌ Error al procesar datos. Detalle: {error_capturado}")
+                        st.error(f"❌ Error al procesar respuesta de la IA. Intenta de nuevo. Detalle: {e}")
 
         # RENDERIZAR RESULTADO FINAL
         if data:
