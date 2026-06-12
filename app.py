@@ -11,7 +11,6 @@ try:
     from zoneinfo import ZoneInfo
     TZ_CHILE = ZoneInfo("America/Santiago")
 except ImportError:
-    # Respaldo (Fallback) a UTC-4 si la versión de Python no tiene zoneinfo
     TZ_CHILE = timezone(timedelta(hours=-4))
 
 # ═══════════════════════════════════════════════
@@ -145,7 +144,6 @@ def mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es):
 
 def fmt_fecha(iso, simple=False):
     try:
-        # Convertimos desde UTC a horario de Chile directamente
         dt = datetime.fromisoformat(iso.replace("Z","+00:00"))
         dt_chile = dt.astimezone(TZ_CHILE)
         
@@ -153,7 +151,6 @@ def fmt_fecha(iso, simple=False):
         dias = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"]
         meses = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
         
-        # Retorna ej: "Sáb 13 Jun · 15:00 (Chile)"
         return f"{dias[dt_chile.isoweekday()%7]} {dt_chile.day} {meses[dt_chile.month]} · {dt_chile.strftime('%H:%M')} (Chile)"
     except: return "Fecha no disponible · 00:00 (Chile)"
 
@@ -230,6 +227,10 @@ st.markdown("""
     background:#161c2b !important; color:#e1e1e1 !important;
     border:1px solid #2d3748 !important; border-radius:10px !important; font-size:13px !important;
   }
+  [data-testid="stSelectbox"] > div > div {
+    background:#161c2b !important; border:1px solid #2d3748 !important;
+    border-radius:10px !important; color:#e1e1e1 !important;
+  }
   [data-testid="stExpander"] {
     background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:12px !important;
   }
@@ -262,25 +263,20 @@ st.markdown("""
     border: 1px solid #00e676 !important; box-shadow: 0 0 10px rgba(0,230,118,0.1) !important;
   }
   
-  /* MAGIA CSS: CONVERTIR RADIO BUTTONS EN "PÍLDORAS" PARA LAS LIGAS */
-  div[role="radiogroup"] {
-      gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
-  }
+  /* CONVERTIR RADIO BUTTONS EN PÍLDORAS */
+  div[role="radiogroup"] { gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
   div[role="radiogroup"] > label {
       background: #161c2b !important; border: 1px solid #2d3748 !important; 
       border-radius: 20px !important; padding: 8px 16px !important; cursor: pointer;
   }
-  div[role="radiogroup"] > label[data-checked="true"] {
-      background: #00e67615 !important; border-color: #00e676 !important;
-  }
+  div[role="radiogroup"] > label[data-checked="true"] { background: #00e67615 !important; border-color: #00e676 !important; }
   div[role="radiogroup"] > label span[data-baseweb="radio"] { display: none !important; }
   div[role="radiogroup"] > label p { font-size: 13px !important; color: #8b949e !important; font-weight: 600 !important; margin: 0 !important; }
   div[role="radiogroup"] > label[data-checked="true"] p { color: #00e676 !important; }
   
-  /* ESTILOS PARA LOS TOGGLES DE PARTIDOS */
+  /* TOGGLES */
   [data-testid="stCheckbox"] {
-      background: #161c2b; padding: 10px 14px; border-radius: 8px; 
-      border: 1px solid #2d3748; margin-bottom: 5px;
+      background: #161c2b; padding: 10px 14px; border-radius: 8px; border: 1px solid #2d3748; margin-bottom: 5px;
   }
   [data-testid="stCheckbox"] label p { color: #e1e1e1 !important; font-size: 14px !important; }
 </style>
@@ -298,18 +294,12 @@ badge  = "EN LÍNEA" if online else "SIN CONEXIÓN"
 bcol   = "#22c55e" if online else "#ef4444"
 
 st.markdown(f"""
-<div style="display:flex;justify-content:space-between;align-items:center;
-            background:#161c2b;padding:13px 16px;border-radius:14px;
-            margin-bottom:16px;border:1px solid #2d3748;">
-  <span style="font-size:20px;font-weight:900;color:#e1e1e1;letter-spacing:.5px;">
-    BET<span style="color:#00e676;">⚡</span>COMBINADAS
-  </span>
-  <span style="border:1px solid {bcol};color:{bcol};font-size:10px;font-weight:700;
-               padding:4px 10px;border-radius:20px;letter-spacing:.5px;">{dot} {badge}</span>
+<div style="display:flex;justify-content:space-between;align-items:center;background:#161c2b;padding:13px 16px;border-radius:14px;margin-bottom:16px;border:1px solid #2d3748;">
+  <span style="font-size:20px;font-weight:900;color:#e1e1e1;letter-spacing:.5px;">BET<span style="color:#00e676;">⚡</span>COMBINADAS</span>
+  <span style="border:1px solid {bcol};color:{bcol};font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;letter-spacing:.5px;">{dot} {badge}</span>
 </div>
 """, unsafe_allow_html=True)
 
-# ─── CONFIGURACIÓN ───────────────────────────────────────────────
 with st.expander("⚙️ Configuración — Claves API", expanded=not online):
     if secret_gemini and secret_odds:
         st.success("✅ Claves cargadas de forma permanente.")
@@ -317,204 +307,211 @@ with st.expander("⚙️ Configuración — Claves API", expanded=not online):
         api_odds = secret_odds
     else:
         c1, c2 = st.columns(2)
-        with c1:
-            api_gemini = st.text_input("Gemini API Key", type="password", help="aistudio.google.com", key="_gem")
-        with c2:
-            api_odds = st.text_input("Odds API Key", type="password", help="the-odds-api.com", key="_odd")
+        with c1: api_gemini = st.text_input("Gemini API Key", type="password", key="_gem")
+        with c2: api_odds = st.text_input("Odds API Key", type="password", key="_odd")
 
-# ─── SELECCIÓN DE LIGA (AHORA COMO BOTONES/PÍLDORAS) ─────────────
+# ─── SELECCIÓN DE LIGA ─────────────────────────────
 st.markdown("<p style='color:#8b949e; font-size:12px; font-weight:600; margin-bottom:5px; margin-top:10px;'>🏆 Elige la Competición</p>", unsafe_allow_html=True)
-
 col_liga, col_btn = st.columns([4, 1])
 with col_liga:
     liga_label = st.radio("Liga", list(LIGAS.keys()), horizontal=True, label_visibility="collapsed")
     liga = LIGAS[liga_label]
-
 with col_btn:
     st.markdown('<div class="btn-actualizar">', unsafe_allow_html=True)
     if st.button("🔄 Refrescar"):
-        if api_odds:
-            obtener_partidos_api.clear(liga, api_odds)
-            st.rerun()
+        if api_odds: obtener_partidos_api.clear(liga, api_odds); st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ─── LÓGICA DE CARGA ──────────────────────────────
 upcoming_matches = []
-
 if api_odds:
-    with st.spinner("🚀 Consultando cuotas en vivo..."):
-        resp, restantes = obtener_partidos_api(liga, api_odds)
-        
-        if isinstance(resp, list) and len(resp) > 0:
-            sorted_resp = sorted(resp, key=lambda x: x.get('commence_time', ''))
-            upcoming_matches = sorted_resp[:6]
-        elif isinstance(resp, dict) and resp.get("message"):
-             st.error(f"❌ Odds API Error: {resp['message']}")
-        else:
-             st.warning("⚠️ No se encontraron próximos partidos para esta competición.")
+    resp, restantes = obtener_partidos_api(liga, api_odds)
+    if isinstance(resp, list) and len(resp) > 0:
+        upcoming_matches = sorted(resp, key=lambda x: x.get('commence_time', ''))[:6]
 
 st.markdown("---")
 
-# ─── SELECCIÓN DE PARTIDOS (AGRUPADOS POR DÍA + INTERRUPTORES) ───
+# ─── SELECCIÓN DE PARTIDOS ───────────────────
 st.subheader("🎯 Selecciona los partidos")
-
 selected_matches = []
 
 if upcoming_matches:
     partidos_por_dia = {}
     for p in upcoming_matches:
         fecha_str = fmt_fecha(p['commence_time'])
-        dia = fecha_str.split(" · ")[0]  # Ej: Sáb 13 Jun
-        hora = fecha_str.split(" · ")[1] # Ej: 15:00 (Chile)
-        
-        if dia not in partidos_por_dia:
-            partidos_por_dia[dia] = []
+        dia = fecha_str.split(" · ")[0]  
+        hora = fecha_str.split(" · ")[1] 
+        if dia not in partidos_por_dia: partidos_por_dia[dia] = []
         partidos_por_dia[dia].append((p, hora))
         
     for dia, lista in partidos_por_dia.items():
         st.markdown(f"<div style='background:#1e293b; padding:6px 12px; border-radius:6px; color:#93c5fd; font-weight:800; font-size:13px; margin-top:16px; margin-bottom:8px; border-left:4px solid #3b82f6;'>📅 {dia}</div>", unsafe_allow_html=True)
-        
         for p, hora in lista:
             home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
             away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
-            
-            label_partido = f"⚽ **{home_es} vs {away_es}** *(🕒 {hora})*"
-            unique_key = p.get('id', p['home_team'] + p['commence_time'])
-            
-            if st.toggle(label_partido, key=unique_key):
+            if st.toggle(f"⚽ **{home_es} vs {away_es}** *(🕒 {hora})*", key=p.get('id', p['home_team']+p['commence_time'])):
                 selected_matches.append(p)
 
     if selected_matches:
         st.markdown("<br>### 📊 Análisis del Mercado", unsafe_allow_html=True)
-        for i, p in enumerate(selected_matches):
-            st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
-            
-        st.markdown(
-            f'<div style="color:#6b7280;font-size:10px;text-align:right;'
-            f'margin-top:-8px;margin-bottom:10px;">'
-            f'⚡ Peticiones restantes: <strong style="color:#e1e1e1;">{restantes}</strong>/500</div>',
-            unsafe_allow_html=True
-        )
+        for i, p in enumerate(selected_matches): st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
 else:
     st.info("Ingresa tus claves API para ver los próximos partidos disponibles.")
 
-# ─── ANÁLISIS IA (100% AUTOMATIZADO) ─────────────────────────────
+# ─── ANÁLISIS IA AUTOMATIZADO CON LÍMITES MATEMÁTICOS Y CACHÉ LOCAL ───
 st.markdown("---")
 
 if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
-    if not api_gemini:
-        st.error("❌ Falta la Gemini API Key. Ponla en Configuración.")
-    elif not selected_matches:
-        st.error("❌ Enciende el interruptor de al menos un partido arriba.")
+    if not api_gemini: st.error("❌ Falta la Gemini API Key.")
+    elif not selected_matches: st.error("❌ Enciende el interruptor de al menos un partido.")
     else:
         formatted_matches = []
+        partidos_ids = []
         for p in selected_matches:
             h2h, t_over, t_under = extraer_odds(p)
             home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
             away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
+            partidos_ids.append(f"{home_es}-{away_es}")
+            formatted_matches.append({
+                "local": home_es, "visita": away_es, "fecha": fmt_fecha(p['commence_time'], simple=True),
+                "cuotas_1x2": h2h, "goles_over": t_over, "goles_under": t_under
+            })
+
+        # Identificador único de la combinación de partidos seleccionados
+        id_combinacion = ",".join(sorted(partidos_ids))
+
+        # Inicializar el almacén local en la RAM (Session State) si no existe
+        if "base_datos_analisis" not in st.session_state:
+            st.session_state["base_datos_analisis"] = {}
+
+        # 🔄 LÓGICA DE BASE DE DATOS LOCAL
+        analisis_previo = st.session_state["base_datos_analisis"].get(id_combinacion)
+
+        data = None
+        origen_datos = ""
+
+        if analisis_previo:
+            data = analisis_previo
+            origen_datos = "📥 Algoritmo Optimizado: Recuperado desde Base de Datos Local (0 tokens gastados)"
+        else:
+            origen_datos = "🧠 Algoritmo Quant: Ejecutando simulación predictiva y guardando en historial"
             
-            p_data = {
-                "local": home_es,
-                "visita": away_es,
-                "fecha": fmt_fecha(p['commence_time'], simple=True),
-                "cuotas_1x2": h2h,
-                "goles_over": t_over,
-                "goles_under": t_under
-            }
-            formatted_matches.append(p_data)
+            # EL SÚPER PROMPT CON REGLAS ESTRICTAS DE CUOTAS Y SELECCIONES
+            prompt = f"""
+            Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
+            Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
 
-        # EL SÚPER PROMPT
-        prompt = f"""
-Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
-Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
+            Competición: {liga_label}
+            Datos de los partidos (Cuotas reales 1X2 y Goles):
+            {formatted_matches}
 
-Competición: {liga_label}
-Datos de los partidos (Cuotas reales 1X2 y Goles):
-{formatted_matches}
+            INSTRUCCIONES DE FILTRADO OBLIGATORIO (REGLAS DE NEGOCIO):
+            Deduce el contexto táctico e histórico de los partidos. Genera exactamente 3 estrategias estructuradas que cumplan estrictamente con estos límites matemáticos de cuotas y combinaciones:
 
-INSTRUCCIONES CLAVE (DEDUCCIÓN DE CONTEXTO):
-No te proporcionaré el clima, las bajas ni la situación del torneo. TÚ DEBES deducirlo automáticamente usando tu base de conocimientos:
-1. Identifica qué fase de la competición "{liga_label}" se está jugando en las fechas indicadas y la motivación real de los equipos.
-2. Infiere el clima habitual de la sede en esa época del año.
-3. Considera el estilo de juego histórico, técnico y físico de las selecciones/equipos involucrados.
+            1. Estrategia 1: "🛡️ La Apuesta Segura (Bajo Riesgo)"
+               - Cuota Total Permitida: Mínimo @1.15 hasta Máximo @1.40.
+               - Cantidad de Selecciones: De 1 a 2 selecciones (picks). Puede ser del mismo partido o combinando varios partidos de la lista provista.
 
-Genera 3 estrategias de apuestas basándote en esta deducción profunda y el cruce con las cuotas reales provistas. Las justificaciones deben ser estrictamente técnicas (bloque bajo, control de posesión, transiciones, valor +EV), no uses frases genéricas.
+            2. Estrategia 2: "⚖️ La Apuesta Moderada (Riesgo Medio)"
+               - Cuota Total Permitida: Mínimo @2.35 hasta Máximo @4.20.
+               - Cantidad de Selecciones: De 2 a 4 selecciones (picks) mezclando 1 o más partidos de la lista provista.
 
-DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura exacta:
+            3. Estrategia 3: "🔥 La Apuesta Arriesgada (Alta Cuota)"
+               - Cuota Total Permitida: Mínimo @4.25 hasta Máximo @8.95.
+               - Cantidad de Selecciones: De 5 a 7 selecciones (picks) de micro-probabilidad, mezclando 1 o más partidos de la lista provista.
 
-{{
-  "game_script": "Explica brevemente el contexto que has deducido (torneo, clima estimado, situación táctica) y cómo afectará el ritmo de juego (máx 4 líneas).",
-  "estrategias": [
-    {{
-      "nivel": "🛡️ La Apuesta Segura (Protección de Bankroll)",
-      "picks": [
-        {{"partido": "Local vs Visita", "seleccion": "Mercado elegido", "cuota": "1.50"}}
-      ],
-      "cuota_total": "1.50",
-      "justificacion": "Análisis cuantitativo de por qué esta cuota tiene valor real..."
-    }},
-    {{
-      "nivel": "⚖️ La Apuesta Moderada (Valor Esperado +EV)",
-      "picks": [
-        {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.80"}},
-        {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.30"}}
-      ],
-      "cuota_total": "2.34",
-      "justificacion": "Tesis táctica del pick..."
-    }},
-    {{
-      "nivel": "🔥 La Apuesta Arriesgada (Ineficiencia de Mercado)",
-      "picks": [
-        {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "2.10"}},
-        {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "3.00"}}
-      ],
-      "cuota_total": "6.30",
-      "justificacion": "Explicación del riesgo y recompensa matemática..."
-    }}
-  ]
-}}
-"""
-        with st.spinner("🧠 Deduciendo contexto táctico y calculando Valor Esperado..."):
-            try:
-                client = genai.Client(api_key=api_gemini)
-                resp = client.models.generate_content(
-                    model="gemini-3.5-flash",
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        max_output_tokens=4096, 
-                        temperature=0.2,
-                        response_mime_type="application/json"
+            DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura exacta:
+
+            {{
+              "game_script": "Explica brevemente el contexto que has deducido (torneo, clima estimado, situación táctica) y cómo afectará el ritmo de juego (máx 4 líneas).",
+              "estrategias": [
+                {{
+                  "nivel": "🛡️ La Apuesta Segura (Protección de Bankroll)",
+                  "picks": [
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado elegido", "cuota": "1.30"}}
+                  ],
+                  "cuota_total": "1.30",
+                  "justificacion": "Análisis cuantitativo de por qué esta cuota tiene valor real..."
+                }},
+                {{
+                  "nivel": "⚖️ La Apuesta Moderada (Valor Esperado +EV)",
+                  "picks": [
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.80"}},
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.50"}}
+                  ],
+                  "cuota_total": "2.70",
+                  "justificacion": "Tesis táctica del pick..."
+                }},
+                {{
+                  "nivel": "🔥 La Apuesta Arriesgada (Ineficiencia de Mercado)",
+                  "picks": [
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.50"}},
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.40"}},
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.30"}},
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.50"}},
+                    {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.20"}}
+                  ],
+                  "cuota_total": "5.67",
+                  "justificacion": "Explicación del riesgo y recompensa matemática..."
+                }}
+              ]
+            }}
+            """
+            with st.spinner("🧠 Deduciendo contexto táctico y calculando Valor Esperado..."):
+                try:
+                    client = genai.Client(api_key=api_gemini)
+                    resp = client.models.generate_content(
+                        model="gemini-3.5-flash",  # MANTENIDO TAL CUAL LO SOLICITASTE
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            max_output_tokens=4096, 
+                            temperature=0.2,
+                            response_mime_type="application/json"
+                        )
                     )
-                )
-                
-                data = json.loads(resp.text)
-                
-                st.markdown("### 📈 El Veredicto del Algoritmo")
-                
-                st.markdown(f"""
-                <div style="background:#0d1117; border-left:4px solid #8b5cf6; padding:14px 16px; border-radius:8px; margin-bottom:20px;">
-                    <div style="color:#a78bfa; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;">⚡ Game Script (Contexto Deducido)</div>
-                    <div style="font-size:14px; color:#e1e1e1; line-height:1.5;"><i>"{data.get('game_script', '')}"</i></div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                tabs = st.tabs(["🛡️ Segura", "⚖️ Moderada", "🔥 Arriesgada"])
-                
-                for i, tab in enumerate(tabs):
-                    with tab:
-                        est = data['estrategias'][i]
-                        
-                        picks_html = ""
-                        for pick in est['picks']:
-                            picks_html += f"""<div style="background:#0f172a; padding:12px; border-radius:8px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; border:1px solid #1e293b;">
+                    
+                    data = json.loads(resp.text)
+                    
+                    # Guardar el nuevo análisis en la memoria RAM para futuras consultas instantáneas
+                    st.session_state["base_datos_analisis"][id_combinacion] = data
+                    
+                except Exception as e:
+                    # MANEJADOR DE ERRORES AMIGABLE
+                    error_msg = str(e)
+                    if "503" in error_msg or "high demand" in error_msg.lower() or "unavailable" in error_msg.lower():
+                        st.warning("⏳ Los servidores de Inteligencia Artificial de Google están experimentando mucha demanda en este instante. Por favor, espera unos segundos y vuelve a presionar el botón verde.")
+                    else:
+                        st.error(f"❌ Error al procesar respuesta de la IA. Intenta de nuevo. Detalle: {e}")
+
+        # RENDERIZAR RESULTADO FINAL
+        if data:
+            st.markdown("### 📈 El Veredicto del Algoritmo")
+            st.caption(f"ℹ️ *{origen_datos}*")
+            
+            st.markdown(f"""
+            <div style="background:#0d1117; border-left:4px solid #8b5cf6; padding:14px 16px; border-radius:8px; margin-bottom:20px;">
+                <div style="color:#a78bfa; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;">⚡ Game Script (Contexto Deducido)</div>
+                <div style="font-size:14px; color:#e1e1e1; line-height:1.5;"><i>"{data.get('game_script', '')}"</i></div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            tabs = st.tabs(["🛡️ Segura", "⚖️ Moderada", "🔥 Arriesgada"])
+            
+            for i, tab in enumerate(tabs):
+                with tab:
+                    est = data['estrategias'][i]
+                    
+                    picks_html = ""
+                    for pick in est['picks']:
+                        picks_html += f"""<div style="background:#0f172a; padding:12px; border-radius:8px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; border:1px solid #1e293b;">
 <div style="display:flex; flex-direction:column;">
 <span style="color:#8b949e; font-size:11px; font-weight:700;">⚽ {pick['partido']}</span>
 <span style="color:#e1e1e1; font-size:14px; font-weight:600; margin-top:2px;">{pick['seleccion']}</span>
 </div>
 <span style="background:#10b981; color:#0f172a; padding:4px 10px; border-radius:6px; font-weight:800; font-size:13px;">@{pick['cuota']}</span>
 </div>"""
-                        
-                        st.markdown(f"""<div style="background:#161c2b; border:2px dashed #2d3748; border-radius:12px; padding:16px; margin-top:8px;">
+                    
+                    st.markdown(f"""<div style="background:#161c2b; border:2px dashed #2d3748; border-radius:12px; padding:16px; margin-top:8px;">
 <h4 style="color:#f8fafc; margin-top:0; border-bottom:1px solid #2d3748; padding-bottom:10px; margin-bottom:16px;">{est['nivel']}</h4>
 {picks_html}
 <div style="display:flex; justify-content:flex-end; margin-top:16px; margin-bottom:16px;">
@@ -528,8 +525,5 @@ DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura ex
 <p style="color:#cbd5e1; font-size:13px; line-height:1.5; margin-top:6px; margin-bottom:0;">{est['justificacion']}</p>
 </div>
 </div>""", unsafe_allow_html=True)
-                        
-            except Exception as e:
-                st.error(f"❌ Error al procesar respuesta de la IA. Intenta de nuevo. Detalle: {e}")
 
 st.markdown('<div style="height:30px;"></div>', unsafe_allow_html=True)
