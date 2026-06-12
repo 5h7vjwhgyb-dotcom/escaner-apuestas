@@ -70,8 +70,9 @@ LIGAS = {
 # ═══════════════════════════════════════════════
 @st.cache_data(ttl=43200, show_spinner=False)
 def obtener_partidos_api(liga, api_key):
+    # Retiramos el mercado 'btts' para evitar el error de la API
     url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
-           f"?apiKey={api_key}&regions=eu&markets=h2h,totals,btts")
+           f"?apiKey={api_key}&regions=eu&markets=h2h,totals")
     try:
         resp_raw = requests.get(url, timeout=10)
         restantes = resp_raw.headers.get("x-requests-remaining", "?")
@@ -89,7 +90,6 @@ def extraer_odds(partido):
     away = partido.get("away_team","")
     h2h = {"home":None,"draw":None,"away":None}
     t_over, t_under = {}, {}
-    btts = {"yes": None, "no": None}
     
     for bk in partido.get("bookmakers",[]):
         for mkt in bk.get("markets",[]):
@@ -109,15 +109,8 @@ def extraer_odds(partido):
                         if pt not in t_over or p > t_over[pt]: t_over[pt] = round(p,2)
                     else:
                         if pt not in t_under or p > t_under[pt]: t_under[pt] = round(p,2)
-            elif mkt["key"] == "btts":
-                for o in mkt["outcomes"]:
-                    p = o["price"]
-                    if o["name"] == "Yes":
-                        if btts["yes"] is None or p > btts["yes"]: btts["yes"] = round(p,2)
-                    elif o["name"] == "No":
-                        if btts["no"] is None or p > btts["no"]: btts["no"] = round(p,2)
                         
-    return h2h, t_over, t_under, btts
+    return h2h, t_over, t_under
 
 def calcular_probs(h2h):
     if not all(v is not None for v in h2h.values()):
@@ -129,7 +122,7 @@ def calcular_probs(h2h):
     away_p = 100 - home_p - draw_p
     return {"home": home_p, "draw": draw_p, "away": away_p}
 
-def mejor_apuesta(h2h, probs, t_over, t_under, btts, home_es, away_es):
+def mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es):
     cands = []
     for pt in sorted(t_over.keys()):
         if pt in t_under:
@@ -140,11 +133,6 @@ def mejor_apuesta(h2h, probs, t_over, t_under, btts, home_es, away_es):
     if h2h["home"]: cands.append({"label":f"Gana {home_es}","odds":h2h["home"],"prob":probs["home"]})
     if h2h["draw"]: cands.append({"label":"Empate","odds":h2h["draw"],"prob":probs["draw"]})
     if h2h["away"]: cands.append({"label":f"Gana {away_es}","odds":h2h["away"],"prob":probs["away"]})
-    
-    if btts["yes"] and btts["no"]:
-        total_btts = (1/btts["yes"]) + (1/btts["no"])
-        cands.append({"label": "Ambos Anotan: SÍ", "odds": btts["yes"], "prob": round((1/btts["yes"])/total_btts*100)})
-        cands.append({"label": "Ambos Anotan: NO", "odds": btts["no"], "prob": round((1/btts["no"])/total_btts*100)})
         
     return max(cands, key=lambda x: x["prob"]) if cands else None
 
@@ -165,9 +153,9 @@ def render_simplified_card(partido, idx=1):
     away_es = TRADUCCIONES.get(away_en, away_en)
     
     fecha = fmt_fecha(partido.get("commence_time",""))
-    h2h, t_over, t_under, btts = extraer_odds(partido)
+    h2h, t_over, t_under = extraer_odds(partido)
     probs = calcular_probs(h2h)
-    best = mejor_apuesta(h2h, probs, t_over, t_under, btts, home_es, away_es)
+    best = mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es)
     
     hp, dp, ap = probs["home"], probs["draw"], probs["away"]
     
@@ -376,8 +364,7 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
     else:
         formatted_matches = []
         for p in selected_matches:
-            h2h, t_over, t_under, btts = extraer_odds(p)
-            probs = calcular_probs(h2h)
+            h2h, t_over, t_under = extraer_odds(p)
             home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
             away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
             
@@ -387,8 +374,7 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
                 "fecha": fmt_fecha(p['commence_time'], simple=True),
                 "cuotas_1x2": h2h,
                 "goles_over": t_over,
-                "goles_under": t_under,
-                "ambos_anotan_btts": btts
+                "goles_under": t_under
             }
             formatted_matches.append(p_data)
 
@@ -398,7 +384,7 @@ Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Niv
 Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
 
 Competición: {liga_label}
-Datos de los partidos (Cuotas reales):
+Datos de los partidos (Cuotas reales 1X2 y Goles):
 {formatted_matches}
 
 INSTRUCCIONES CLAVE (DEDUCCIÓN DE CONTEXTO):
@@ -407,7 +393,7 @@ No te proporcionaré el clima, las bajas ni la situación del torneo. TÚ DEBES 
 2. Infiere el clima habitual de la sede en esa época del año.
 3. Considera el estilo de juego histórico, técnico y físico de las selecciones/equipos involucrados.
 
-Genera 3 estrategias de apuestas basándote en esta deducción profunda y el cruce con las cuotas reales. Las justificaciones deben ser estrictamente técnicas (bloque bajo, control de posesión, transiciones, valor +EV), no uses frases genéricas.
+Genera 3 estrategias de apuestas basándote en esta deducción profunda y el cruce con las cuotas reales provistas. Las justificaciones deben ser estrictamente técnicas (bloque bajo, control de posesión, transiciones, valor +EV), no uses frases genéricas.
 
 DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura exacta:
 
