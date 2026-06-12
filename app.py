@@ -144,7 +144,7 @@ def obtener_estadisticas_futbol(local_nombre, visita_nombre, api_key):
 def obtener_analisis_ia(api_key, prompt, id_combinacion):
     client = genai.Client(api_key=api_key)
     resp = client.models.generate_content(
-        model="gemini-2.0-flash", 
+        model="gemini-3.1-flash-lite", 
         contents=prompt,
         config=types.GenerateContentConfig(
             max_output_tokens=4096, 
