@@ -359,7 +359,7 @@ if upcoming_matches:
 else:
     st.info("Ingresa tus claves API para ver los próximos partidos disponibles.")
 
-# ─── ANÁLISIS IA CON COMPARTIMENTACIÓN Y SISTEMA ANTI-SPAM ───
+# ─── ANÁLISIS IA CON CASCADA FLASH-LITE Y SISTEMA ANTI-SPAM ───
 st.markdown("---")
 
 if "last_api_call" not in st.session_state:
@@ -373,7 +373,7 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
     else:
         tiempo_actual = time.time()
         tiempo_pasado = tiempo_actual - st.session_state["last_api_call"]
-        cooldown_necesario = 5 # Lo bajamos a 5s porque 1.5-flash permite muchas peticiones
+        cooldown_necesario = 5 
         
         formatted_matches = []
         partidos_ids = []
@@ -400,8 +400,6 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
             segundos_restantes = int(cooldown_necesario - tiempo_pasado)
             st.warning(f"⏳ El algoritmo está enfriándose. Por favor, espera **{segundos_restantes} segundos**.")
         else:
-            origen_datos = "🧠 Algoritmo Quant (Gemini 1.5 Flash): Ejecutando simulación"
-            
             prompt = f"""
             Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
             Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
@@ -460,20 +458,18 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
             }}
             """
             
-            max_intentos = 3
-            intento_actual = 0
-            exito = False
-            status_container = st.empty()
+            # EL CEREBRO DE ALTO VOLUMEN (Flash-Lite como prioridad 1)
+            modelos_a_probar = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.1-pro-preview"]
             
-            while intento_actual < max_intentos and not exito:
+            status_container = st.empty()
+            client = genai.Client(api_key=api_gemini)
+            
+            for index, modelo in enumerate(modelos_a_probar):
                 with status_container.container():
-                    mensaje_spinner = "🧠 Consultando Algoritmo Quant..." if intento_actual == 0 else f"⏳ Red de IA saturada. Reintento automático silencioso ({intento_actual}/{max_intentos - 1})..."
-                    with st.spinner(mensaje_spinner):
+                    with st.spinner(f"🧠 Consultando motor IA de alto volumen ({modelo})..."):
                         try:
-                            client = genai.Client(api_key=api_gemini)
-                            # AQUÍ ESTÁ EL CAMBIO OFICIAL AL MODELO CORRECTO
                             resp = client.models.generate_content(
-                                model="gemini-1.5-flash",
+                                model=modelo,
                                 contents=prompt,
                                 config=types.GenerateContentConfig(
                                     max_output_tokens=4096, 
@@ -484,18 +480,21 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
                             data = json.loads(resp.text)
                             st.session_state["base_datos_analisis"][id_combinacion] = data
                             st.session_state["last_api_call"] = time.time()
-                            exito = True
+                            origen_datos = f"🧠 Algoritmo Quant ({modelo}): Simulación exitosa"
                             status_container.empty()
+                            break 
                             
                         except Exception as e:
-                            intento_actual += 1
-                            error_msg = str(e)
-                            if ("429" in error_msg or "503" in error_msg or "quota" in error_msg.lower()) and intento_actual < max_intentos:
-                                time.sleep(8) 
+                            if index == len(modelos_a_probar) - 1:
+                                error_msg = str(e)
+                                if "429" in error_msg or "quota" in error_msg.lower():
+                                    st.warning("⏳ Has alcanzado el límite de consultas. Por favor, espera unos segundos.")
+                                else:
+                                    st.error("❌ Los servidores de Google están saturados en este momento. Por favor, espera un minuto.")
                             else:
-                                st.error("❌ Los servidores de Google rechazaron las peticiones. Por favor, espera un par de minutos.")
-                                break
+                                time.sleep(1.5)
 
+        # RENDERIZAR RESULTADO FINAL
         if data:
             st.markdown("### 📈 El Veredicto del Algoritmo")
             st.caption(f"ℹ️ *{origen_datos}*")
