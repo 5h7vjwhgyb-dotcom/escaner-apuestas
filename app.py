@@ -109,9 +109,12 @@ def obtener_estadisticas_apisports(fixture_id, api_key):
 # CLAVES API HARDCODEADAS
 # ═══════════════════════════════════════════════
 # Reemplaza los textos vacíos con tus claves correspondientes
-api_gemini = "" # <--- PEGA TU CLAVE DE GEMINI AQUÍ
-api_odds = ""   # <--- PEGA TU CLAVE DE ODDS API AQUÍ
-api_sports = "130428295730e50d0620ef8559af7b16" # Clave de API-Sports agregada
+# ═══════════════════════════════════════════════
+# CLAVES API SEGUROS (SECRETS)
+# ═══════════════════════════════════════════════
+api_gemini = st.secrets.get("GEMINI_API", "")
+api_odds = st.secrets.get("ODDS_API", "")
+api_sports = st.secrets.get("SPORTS_API", "")
 
 online = bool(api_gemini and api_odds and api_sports)
 
