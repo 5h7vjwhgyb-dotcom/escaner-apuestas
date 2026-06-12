@@ -6,7 +6,7 @@ from datetime import datetime
 import math
 
 # ═══════════════════════════════════════════════
-# BANDERAS
+# BANDERAS Y LIGAS
 # ═══════════════════════════════════════════════
 BANDERAS = {
     "Mexico":"🇲🇽","South Africa":"🇿🇦","South Korea":"🇰🇷",
@@ -47,6 +47,21 @@ LIGAS = {
     "🇫🇷 Ligue 1":                         "soccer_france_ligue_one",
     "🏆 Champions League":                 "soccer_uefa_champs_league",
 }
+
+# ═══════════════════════════════════════════════
+# FUNCIÓN CON CACHÉ PARA LA API DE ODDS
+# ═══════════════════════════════════════════════
+# ttl=43200 significa que el caché dura 12 horas (en segundos)
+@st.cache_data(ttl=43200, show_spinner=False)
+def obtener_partidos_api(liga, api_key):
+    url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
+           f"?apiKey={api_key}&regions=eu&markets=h2h,totals")
+    try:
+        resp_raw = requests.get(url, timeout=10)
+        restantes = resp_raw.headers.get("x-requests-remaining", "?")
+        return resp_raw.json(), restantes
+    except Exception as e:
+        return {"message": str(e)}, "?"
 
 # ═══════════════════════════════════════════════
 # HELPERS
@@ -92,7 +107,7 @@ def calcular_probs(h2h):
     total = ph + pd + pa
     home_p = round(ph/total*100)
     draw_p = round(pd/total*100)
-    away_p = 100 - home_p - draw_p   # ensure exact 100
+    away_p = 100 - home_p - draw_p
     return {"home": home_p, "draw": draw_p, "away": away_p}
 
 def mejor_apuesta(h2h, probs, t_over, t_under):
@@ -122,7 +137,6 @@ def render_simplified_card(partido, idx=1):
     h2h, t_over, t_under = extraer_odds(partido)
     probs = calcular_probs(h2h)
     
-    # ── Probability bar ─────────────────────────────────────
     hp, dp, ap = probs["home"], probs["draw"], probs["away"]
 
     return f"""
@@ -174,7 +188,6 @@ st.markdown("""
   section[data-testid="stSidebar"]    { display:none; }
   .block-container { padding-top:0.8rem !important; max-width:520px !important; }
 
-  /* Text & labels */
   label, .stTextInput label, .stTextArea label,
   .stSelectbox label { color:#8b949e !important; font-size:12px !important; }
   .stTextInput input, .stTextArea textarea {
@@ -182,19 +195,16 @@ st.markdown("""
     border:1px solid #2d3748 !important; border-radius:10px !important;
     font-size:13px !important;
   }
-  /* Selectbox */
   [data-testid="stSelectbox"] > div > div {
     background:#161c2b !important; border:1px solid #2d3748 !important;
     border-radius:10px !important; color:#e1e1e1 !important;
   }
-  /* Expander */
   [data-testid="stExpander"] {
     background:#161c2b !important; border:1px solid #2d3748 !important;
     border-radius:12px !important;
   }
   [data-testid="stExpanderToggleIcon"] svg { fill:#00e676 !important; }
 
-  /* Buttons */
   .stButton > button {
     background:linear-gradient(90deg,#00e676,#00b4d8) !important;
     border:none !important; border-radius:12px !important;
@@ -203,14 +213,18 @@ st.markdown("""
     padding:0.65em !important; letter-spacing:.4px !important;
   }
   .stButton > button:hover { opacity:.9; }
+  
+  /* Estilo especial para el botón de actualización pequeño */
+  .btn-actualizar > button {
+    background:#2d3748 !important;
+    color:#e1e1e1 !important;
+    font-size:12px !important;
+    margin-top: 28px !important; /* Alinear con el selectbox */
+  }
 
-  /* Warning/info/error */
   [data-testid="stAlert"] { border-radius:12px !important; }
-
-  /* Divider */
   hr { border-color:#2d3748 !important; }
 
-  /* Results card */
   .result-card {
     background:#161c2b; border-left:4px solid #00e676;
     border-radius:12px; padding:16px; margin-bottom:14px;
@@ -251,39 +265,41 @@ with st.expander("⚙️  Configuración — Claves API", expanded=not online):
                                  help="the-odds-api.com", key="_odd")
     st.caption("💡 Tier gratuito Odds API: 500 peticiones/mes · Gemini 3.5 Flash")
 
-# ─── LIGA Y AUTO-LOAD PARTIDOS (Próximos 6) ──────────────────────
-liga_label = st.selectbox("🏆 Liga para buscar próximos partidos", list(LIGAS.keys()), index=0)
-liga = LIGAS[liga_label]
+# ─── SELECCIÓN DE LIGA Y BOTÓN ACTUALIZAR ────────────────────────
+col_liga, col_btn = st.columns([3, 1])
 
+with col_liga:
+    liga_label = st.selectbox("🏆 Liga para buscar próximos partidos", list(LIGAS.keys()), index=0)
+    liga = LIGAS[liga_label]
+
+with col_btn:
+    st.markdown('<div class="btn-actualizar">', unsafe_allow_html=True)
+    if st.button("🔄 Actualizar", help="Forzar descarga desde la API (gasta 1 petición)"):
+        if api_odds:
+            # Aquí limpiamos la memoria RAM solo para esta liga y recargamos
+            obtener_partidos_api.clear(liga, api_odds)
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ─── LÓGICA DE CARGA (Usando Caché) ──────────────────────────────
 upcoming_matches = []
 upcoming_matches_dict = {}
 restantes = "?"
 
 if api_odds:
-    url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
-           f"?apiKey={api_odds}&regions=eu&markets=h2h,totals")
-    
-    with st.spinner(f"🚀 Buscando próximos partidos..."):
-        try:
-            resp_raw = requests.get(url, timeout=10)
-            restantes = resp_raw.headers.get("x-requests-remaining","?")
-            resp = resp_raw.json()
-
-            if isinstance(resp, list) and len(resp) > 0:
-                # Ordenar por fecha del partido
-                sorted_resp = sorted(resp, key=lambda x: x.get('commence_time', ''))
-                
-                # Agarrar los primeros 6
-                upcoming_matches = sorted_resp[:6]
-                for p in upcoming_matches:
-                    name = f"{fmt_fecha(p['commence_time'], simple=True)}: {p['home_team']} vs {p['away_team']}"
-                    upcoming_matches_dict[name] = p
-            elif isinstance(resp, dict) and resp.get("message"):
-                 st.error(f"❌ Odds API Error: {resp['message']}")
-            else:
-                 st.warning("⚠️ No se encontraron próximos partidos para esta liga.")
-        except Exception as e:
-            st.error(f"❌ Error al cargar partidos: {e}")
+    with st.spinner("🚀 Consultando datos (caché o API)..."):
+        resp, restantes = obtener_partidos_api(liga, api_odds)
+        
+        if isinstance(resp, list) and len(resp) > 0:
+            sorted_resp = sorted(resp, key=lambda x: x.get('commence_time', ''))
+            upcoming_matches = sorted_resp[:6]
+            for p in upcoming_matches:
+                name = f"{fmt_fecha(p['commence_time'], simple=True)}: {p['home_team']} vs {p['away_team']}"
+                upcoming_matches_dict[name] = p
+        elif isinstance(resp, dict) and resp.get("message"):
+             st.error(f"❌ Odds API Error: {resp['message']}")
+        else:
+             st.warning("⚠️ No se encontraron próximos partidos para esta liga.")
 
 st.markdown("---")
 
@@ -295,12 +311,11 @@ if upcoming_matches_dict:
         "Selecciona hasta 6 partidos",
         options=list(upcoming_matches_dict.keys()),
         default=None,
-        help="Selecciona los partidos que quieres analizar para generar las apuestas combinadas."
+        help="Los datos se están cargando desde la RAM. Seleccionar aquí no consume API."
     )
     
     selected_matches = [upcoming_matches_dict[name] for name in selected_match_names]
 
-    # Mostrar tarjetas simples para los partidos seleccionados
     if selected_matches:
         st.markdown("### 👀 Vista previa de selección")
         for i, p in enumerate(selected_matches):
@@ -309,14 +324,14 @@ if upcoming_matches_dict:
         st.markdown(
             f'<div style="color:#6b7280;font-size:10px;text-align:right;'
             f'margin-top:-10px;margin-bottom:10px;">'
-            f'📊 Peticiones Odds restantes: <strong style="color:#e1e1e1;">{restantes}</strong>/500</div>',
+            f'📊 Peticiones Odds restantes (Última llamada): <strong style="color:#e1e1e1;">{restantes}</strong>/500</div>',
             unsafe_allow_html=True
         )
 else:
     selected_matches = []
     st.info("Ingresa tus claves API arriba para ver los próximos partidos disponibles.")
 
-# ─── CONTEXTO + ANÁLISIS COMBINADO ──────────────────────────────
+# ─── CONTEXTO + ANÁLISIS IA ────────────────────────────────────
 st.markdown("---")
 contexto = st.text_area(
     "📋 Contexto adicional (opcional)",
@@ -329,7 +344,6 @@ if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
     elif not selected_matches:
         st.error("❌ Selecciona al menos un partido de la lista de arriba primero.")
     else:
-        # Extraer cuotas y mercado para el prompt
         formatted_matches = []
         for p in selected_matches:
             h2h, t_over, t_under = extraer_odds(p)
@@ -348,7 +362,6 @@ if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
             }
             formatted_matches.append(p_data)
 
-        # ── NUEVO PROMPT ADAPTADO AL FORMATO EXACTO SOLICITADO ──
         prompt = f"""
 Actúa como un tipster y analista experto en apuestas deportivas de fútbol. Tu tarea es analizar los siguientes partidos seleccionados y generar tres opciones de apuestas (parleys/combinadas) categorizadas por nivel de riesgo.
 
@@ -365,16 +378,16 @@ Antes de dar los pronósticos, haz una muy breve introducción (dos o tres líne
 Luego, entrégame las tres apuestas siguiendo ESTRICTAMENTE esta estructura y formato, utilizando encabezados "##":
 
 ## 1. La Apuesta Segura (Bajo Riesgo)
-*   **Formato:** Una apuesta combinada clásica de máximo 2 selecciones. Prioriza que ambas selecciones sean de un MISMO partido de la lista.
-*   **Requisito:** Deben ser los mercados más probables basándote en el JSON (ej. Doble Oportunidad, Más/Menos goles). Justifica brevemente por qué es segura basándote en la tendencia y las probabilidades provistas.
+* **Formato:** Una apuesta combinada clásica de máximo 2 selecciones. Prioriza que ambas selecciones sean de un MISMO partido de la lista.
+* **Requisito:** Deben ser los mercados más probables basándote en el JSON (ej. Doble Oportunidad, Más/Menos goles). Justifica brevemente por qué es segura basándote en la tendencia y las probabilidades provistas.
 
 ## 2. La Apuesta Moderada (Riesgo Medio)
-*   **Formato:** Una función "Crear Apuesta" (Bet Builder) de 3 a 4 selecciones para UN MISMO PARTIDO de la lista.
-*   **Requisito:** Incluye los mercados de goles/resultado del JSON y combínalos con tus propias inferencias tácticas (ej. tiros a puerta de un jugador clave, más de X córners o tarjetas). Justifica cada selección con datos tácticos o el estilo de juego real de los equipos.
+* **Formato:** Una función "Crear Apuesta" (Bet Builder) de 3 a 4 selecciones para UN MISMO PARTIDO de la lista.
+* **Requisito:** Incluye los mercados de goles/resultado del JSON y combínalos con tus propias inferencias tácticas (ej. tiros a puerta de un jugador clave, más de X córners o tarjetas). Justifica cada selección con datos tácticos o el estilo de juego real de los equipos.
 
 ## 3. La Apuesta Arriesgada (Baja Inversión, Cuota Alta)
-*   **Formato:** Un parley largo de 5 a 7 selecciones. Puedes usar un "Crear Apuesta" de un solo partido o mezclar varios de la lista.
-*   **Requisito:** Aunque es arriesgada por la cantidad de líneas, CADA SELECCIÓN debe tener una alta probabilidad matemática o táctica de ocurrir. Utiliza líneas bajas de córners, faltas, o mercados del JSON. Justifica cada punto de forma rápida y directa.
+* **Formato:** Un parley largo de 5 a 7 selecciones. Puedes usar un "Crear Apuesta" de un solo partido o mezclar varios de la lista.
+* **Requisito:** Aunque es arriesgada por la cantidad de líneas, CADA SELECCIÓN debe tener una alta probabilidad matemática o táctica de ocurrir. Utiliza líneas bajas de córners, faltas, o mercados del JSON. Justifica cada punto de forma rápida y directa.
 
 Tono y Estilo:
 El lenguaje debe ser profesional, objetivo y persuasivo. No uses lenguaje excesivamente complejo, pero demuestra conocimiento profundo de estadísticas y roles tácticos. 
@@ -390,7 +403,6 @@ El lenguaje debe ser profesional, objetivo y persuasivo. No uses lenguaje excesi
                 texto = resp.text
                 st.markdown("### 🔥 Resultados de tus Estrategias")
                 
-                # Render results in cleaner cards (el split("##") encajará perfecto con el prompt)
                 for sec in texto.split("##"):
                     if sec.strip():
                         lines = sec.strip().split('\n')
