@@ -71,7 +71,7 @@ LIGAS = {
 @st.cache_data(ttl=43200, show_spinner=False)
 def obtener_partidos_api(liga, api_key):
     url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
-           f"?apiKey={api_key}&regions=eu&markets=h2h,totals")
+           f"?apiKey={api_key}&regions=eu&markets=h2h,totals,btts")
     try:
         resp_raw = requests.get(url, timeout=10)
         restantes = resp_raw.headers.get("x-requests-remaining", "?")
@@ -89,6 +89,8 @@ def extraer_odds(partido):
     away = partido.get("away_team","")
     h2h = {"home":None,"draw":None,"away":None}
     t_over, t_under = {}, {}
+    btts = {"yes": None, "no": None}
+    
     for bk in partido.get("bookmakers",[]):
         for mkt in bk.get("markets",[]):
             if mkt["key"] == "h2h":
@@ -107,7 +109,15 @@ def extraer_odds(partido):
                         if pt not in t_over or p > t_over[pt]: t_over[pt] = round(p,2)
                     else:
                         if pt not in t_under or p > t_under[pt]: t_under[pt] = round(p,2)
-    return h2h, t_over, t_under
+            elif mkt["key"] == "btts":
+                for o in mkt["outcomes"]:
+                    p = o["price"]
+                    if o["name"] == "Yes":
+                        if btts["yes"] is None or p > btts["yes"]: btts["yes"] = round(p,2)
+                    elif o["name"] == "No":
+                        if btts["no"] is None or p > btts["no"]: btts["no"] = round(p,2)
+                        
+    return h2h, t_over, t_under, btts
 
 def calcular_probs(h2h):
     if not all(v is not None for v in h2h.values()):
@@ -119,7 +129,7 @@ def calcular_probs(h2h):
     away_p = 100 - home_p - draw_p
     return {"home": home_p, "draw": draw_p, "away": away_p}
 
-def mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es):
+def mejor_apuesta(h2h, probs, t_over, t_under, btts, home_es, away_es):
     cands = []
     for pt in sorted(t_over.keys()):
         if pt in t_under:
@@ -131,6 +141,11 @@ def mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es):
     if h2h["draw"]: cands.append({"label":"Empate","odds":h2h["draw"],"prob":probs["draw"]})
     if h2h["away"]: cands.append({"label":f"Gana {away_es}","odds":h2h["away"],"prob":probs["away"]})
     
+    if btts["yes"] and btts["no"]:
+        total_btts = (1/btts["yes"]) + (1/btts["no"])
+        cands.append({"label": "Ambos Anotan: SÍ", "odds": btts["yes"], "prob": round((1/btts["yes"])/total_btts*100)})
+        cands.append({"label": "Ambos Anotan: NO", "odds": btts["no"], "prob": round((1/btts["no"])/total_btts*100)})
+        
     return max(cands, key=lambda x: x["prob"]) if cands else None
 
 def fmt_fecha(iso, simple=False):
@@ -150,9 +165,9 @@ def render_simplified_card(partido, idx=1):
     away_es = TRADUCCIONES.get(away_en, away_en)
     
     fecha = fmt_fecha(partido.get("commence_time",""))
-    h2h, t_over, t_under = extraer_odds(partido)
+    h2h, t_over, t_under, btts = extraer_odds(partido)
     probs = calcular_probs(h2h)
-    best = mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es)
+    best = mejor_apuesta(h2h, probs, t_over, t_under, btts, home_es, away_es)
     
     hp, dp, ap = probs["home"], probs["draw"], probs["away"]
     
@@ -162,7 +177,7 @@ def render_simplified_card(partido, idx=1):
 
     best_bet_html = ""
     if best:
-        best_bet_html = f"""<div style="background:#00e67615; color:#00e676; border:1px solid #00e67640; padding:6px; border-radius:8px; font-size:12px; font-weight:700; text-align:center; margin-top:12px; letter-spacing:0.3px;">🔥 Destacada: {best['label']} ({best['odds']})</div>"""
+        best_bet_html = f"""<div style="background:#00e67615; color:#00e676; border:1px solid #00e67640; padding:6px; border-radius:8px; font-size:12px; font-weight:700; text-align:center; margin-top:12px; letter-spacing:0.3px;">💡 Valor Matemático: {best['label']} ({best['odds']})</div>"""
 
     return f"""<div style="background:#161c2b;border-radius:12px;padding:14px;border:1px solid #2a3349;margin-bottom:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
@@ -239,27 +254,18 @@ st.markdown("""
   [data-testid="stAlert"] { border-radius:12px !important; }
   hr { border-color:#2d3748 !important; }
   
-  /* ========================================================= */
-  /* PESTAÑAS CONVERTIDAS EN BOTONES (Tabs)                    */
-  /* ========================================================= */
+  /* PESTAÑAS BOTONES */
   [data-testid="stTabs"] button {
-    background-color: #161c2b !important;
-    color: #8b949e !important;
-    font-weight: 700 !important;
-    border-radius: 8px !important;
-    border: 1px solid #2d3748 !important;
-    padding: 6px 16px !important;
-    margin-right: 8px !important;
+    background-color: #161c2b !important; color: #8b949e !important;
+    font-weight: 700 !important; border-radius: 8px !important;
+    border: 1px solid #2d3748 !important; padding: 6px 16px !important; margin-right: 8px !important;
   }
   [data-testid="stTabs"] button:hover {
-    background-color: #2d3748 !important;
-    color: #e1e1e1 !important;
+    background-color: #2d3748 !important; color: #e1e1e1 !important;
   }
   [data-testid="stTabs"] button[aria-selected="true"] {
-    background-color: #00e67615 !important;
-    color: #00e676 !important;
-    border: 1px solid #00e676 !important;
-    box-shadow: 0 0 10px rgba(0,230,118,0.1) !important;
+    background-color: #00e67615 !important; color: #00e676 !important;
+    border: 1px solid #00e676 !important; box-shadow: 0 0 10px rgba(0,230,118,0.1) !important;
   }
 </style>
 """, unsafe_allow_html=True)
@@ -296,7 +302,7 @@ with st.expander("⚙️ Configuración — Claves API", expanded=not online):
 col_liga, col_btn = st.columns([3, 1])
 
 with col_liga:
-    liga_label = st.selectbox("🏆 Liga para analizar", list(LIGAS.keys()), index=0)
+    liga_label = st.selectbox("🏆 Competición para analizar", list(LIGAS.keys()), index=0)
     liga = LIGAS[liga_label]
 
 with col_btn:
@@ -313,7 +319,7 @@ upcoming_matches_dict = {}
 restantes = "?"
 
 if api_odds:
-    with st.spinner("🚀 Consultando cuotas..."):
+    with st.spinner("🚀 Consultando cuotas en vivo..."):
         resp, restantes = obtener_partidos_api(liga, api_odds)
         
         if isinstance(resp, list) and len(resp) > 0:
@@ -327,18 +333,19 @@ if api_odds:
         elif isinstance(resp, dict) and resp.get("message"):
              st.error(f"❌ Odds API Error: {resp['message']}")
         else:
-             st.warning("⚠️ No se encontraron próximos partidos para esta liga.")
+             st.warning("⚠️ No se encontraron próximos partidos para esta competición.")
 
 st.markdown("---")
 
 # ─── SELECCIÓN DE PARTIDOS ─────────────────────────────────────
-st.subheader("🎯 Selecciona de los próximos 6 partidos")
+st.subheader("🎯 Selecciona de los próximos partidos")
 
 if upcoming_matches_dict:
     selected_match_names = st.multiselect(
         "Selecciona hasta 6 partidos",
         options=list(upcoming_matches_dict.keys()),
-        default=None
+        default=None,
+        help="La IA deducirá automáticamente el contexto (clima, bajas y situación del torneo)."
     )
     
     selected_matches = [upcoming_matches_dict[name] for name in selected_match_names]
@@ -358,14 +365,10 @@ else:
     selected_matches = []
     st.info("Ingresa tus claves API arriba para ver los próximos partidos disponibles.")
 
-# ─── CONTEXTO + ANÁLISIS IA (VERSIÓN TICKETS/TABS) ───────────────
+# ─── ANÁLISIS IA (100% AUTOMATIZADO) ─────────────────────────────
 st.markdown("---")
-contexto = st.text_area(
-    "📋 Contexto adicional para la IA (opcional)",
-    placeholder="Ej: El local necesita ganar para clasificar, el árbitro saca muchas tarjetas..."
-)
 
-if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
+if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
     if not api_gemini:
         st.error("❌ Falta la Gemini API Key. Ponla en Configuración.")
     elif not selected_matches:
@@ -373,7 +376,7 @@ if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
     else:
         formatted_matches = []
         for p in selected_matches:
-            h2h, t_over, t_under = extraer_odds(p)
+            h2h, t_over, t_under, btts = extraer_odds(p)
             probs = calcular_probs(h2h)
             home_es = TRADUCCIONES.get(p['home_team'], p['home_team'])
             away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
@@ -384,52 +387,63 @@ if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
                 "fecha": fmt_fecha(p['commence_time'], simple=True),
                 "cuotas_1x2": h2h,
                 "goles_over": t_over,
-                "goles_under": t_under
+                "goles_under": t_under,
+                "ambos_anotan_btts": btts
             }
             formatted_matches.append(p_data)
 
+        # EL SÚPER PROMPT: La IA deduce el contexto por sí sola
         prompt = f"""
-Actúa como un tipster experto en fútbol. Analiza estos partidos y sus cuotas reales:
+Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
+Tu objetivo es analizar estos partidos y encontrar ineficiencias de mercado o Valor Esperado Positivo (+EV).
+
+Competición: {liga_label}
+Datos de los partidos (Cuotas reales):
 {formatted_matches}
 
-Contexto extra: {contexto or 'Ninguno.'}
+INSTRUCCIONES CLAVE (DEDUCCIÓN DE CONTEXTO):
+No te proporcionaré el clima, las bajas ni la situación del torneo. TÚ DEBES deducirlo automáticamente usando tu base de conocimientos:
+1. Identifica qué fase de la competición "{liga_label}" se está jugando en las fechas indicadas y la motivación real de los equipos.
+2. Infiere el clima habitual de la sede en esa época del año.
+3. Considera el estilo de juego histórico, técnico y físico de las selecciones/equipos involucrados.
 
-Genera 3 estrategias de apuestas (Segura, Moderada, Arriesgada) basándote en las cuotas dadas y tu conocimiento táctico. 
-DEBES responder ÚNICAMENTE con un objeto JSON válido usando exactamente esta estructura, sin texto fuera del JSON (no uses markdown como ```json):
+Genera 3 estrategias de apuestas basándote en esta deducción profunda y el cruce con las cuotas reales. Las justificaciones deben ser estrictamente técnicas (bloque bajo, control de posesión, transiciones, valor +EV), no uses frases genéricas.
+
+DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura exacta:
 
 {{
-  "intro": "Breve introducción táctica general (máx 3 líneas).",
+  "game_script": "Explica brevemente el contexto que has deducido (torneo, clima estimado, situación táctica) y cómo afectará el ritmo de juego (máx 4 líneas).",
   "estrategias": [
     {{
-      "nivel": "🛡️ La Apuesta Segura (Bajo Riesgo)",
+      "nivel": "🛡️ La Apuesta Segura (Protección de Bankroll)",
       "picks": [
         {{"partido": "Local vs Visita", "seleccion": "Mercado elegido", "cuota": "1.50"}}
       ],
       "cuota_total": "1.50",
-      "justificacion": "Por qué es segura..."
+      "justificacion": "Análisis cuantitativo de por qué esta cuota tiene valor real..."
     }},
     {{
-      "nivel": "⚖️ La Apuesta Moderada (Riesgo Medio)",
+      "nivel": "⚖️ La Apuesta Moderada (Valor Esperado +EV)",
       "picks": [
         {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.80"}},
         {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.30"}}
       ],
       "cuota_total": "2.34",
-      "justificacion": "Análisis táctico..."
+      "justificacion": "Tesis táctica del pick..."
     }},
     {{
-      "nivel": "🔥 La Apuesta Arriesgada (Alta Cuota)",
+      "nivel": "🔥 La Apuesta Arriesgada (Ineficiencia de Mercado)",
       "picks": [
         {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "2.10"}},
         {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "3.00"}}
       ],
       "cuota_total": "6.30",
-      "justificacion": "Análisis rápido..."
+      "justificacion": "Explicación del riesgo y recompensa matemática..."
     }}
   ]
 }}
 """
-        with st.spinner("🧠 Procesando datos y diseñando tickets..."):
+        with st.spinner("🧠 Deduciendo contexto táctico y calculando Valor Esperado..."):
             try:
                 client = genai.Client(api_key=api_gemini)
                 resp = client.models.generate_content(
@@ -444,11 +458,12 @@ DEBES responder ÚNICAMENTE con un objeto JSON válido usando exactamente esta e
                 
                 data = json.loads(resp.text)
                 
-                st.markdown("### 🔥 Veredicto de la IA")
+                st.markdown("### 📈 El Veredicto del Algoritmo")
                 
                 st.markdown(f"""
-                <div style="background:#0d1117; border-left:4px solid #3b82f6; padding:12px 16px; border-radius:8px; margin-bottom:20px; font-size:14px; color:#e1e1e1;">
-                    <i>{data.get('intro', '')}</i>
+                <div style="background:#0d1117; border-left:4px solid #8b5cf6; padding:14px 16px; border-radius:8px; margin-bottom:20px;">
+                    <div style="color:#a78bfa; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;">⚡ Game Script (Contexto Deducido)</div>
+                    <div style="font-size:14px; color:#e1e1e1; line-height:1.5;"><i>"{data.get('game_script', '')}"</i></div>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -472,18 +487,18 @@ DEBES responder ÚNICAMENTE con un objeto JSON válido usando exactamente esta e
 <h4 style="color:#f8fafc; margin-top:0; border-bottom:1px solid #2d3748; padding-bottom:10px; margin-bottom:16px;">{est['nivel']}</h4>
 {picks_html}
 <div style="display:flex; justify-content:flex-end; margin-top:16px; margin-bottom:16px;">
-<div style="background:#3b82f615; border:1px solid #3b82f6; padding:8px 16px; border-radius:8px;">
-<span style="color:#93c5fd; font-size:12px; font-weight:700;">CUOTA TOTAL APROX:</span>
-<span style="color:#60a5fa; font-size:18px; font-weight:900; margin-left:8px;">@{est['cuota_total']}</span>
+<div style="background:#8b5cf615; border:1px solid #8b5cf6; padding:8px 16px; border-radius:8px;">
+<span style="color:#c4b5fd; font-size:12px; font-weight:700;">CUOTA TOTAL APROX:</span>
+<span style="color:#a78bfa; font-size:18px; font-weight:900; margin-left:8px;">@{est['cuota_total']}</span>
 </div>
 </div>
 <div style="background:#1e293b; padding:12px; border-radius:8px; border-left:3px solid #f59e0b;">
-<span style="color:#fcd34d; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px;">Análisis Táctico</span>
+<span style="color:#fcd34d; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px;">Tesis Cuantitativa (+EV)</span>
 <p style="color:#cbd5e1; font-size:13px; line-height:1.5; margin-top:6px; margin-bottom:0;">{est['justificacion']}</p>
 </div>
 </div>""", unsafe_allow_html=True)
                         
             except Exception as e:
-                st.error(f"❌ Error al procesar respuesta de la IA: Asegúrate de seleccionar partidos válidos. Detalle: {e}")
+                st.error(f"❌ Error al procesar respuesta de la IA. Intenta de nuevo. Detalle: {e}")
 
 st.markdown('<div style="height:30px;"></div>', unsafe_allow_html=True)
