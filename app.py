@@ -161,56 +161,38 @@ def render_simplified_card(partido, idx=1):
     odd_d = f"@{h2h['draw']}" if h2h.get('draw') else "N/A"
     odd_a = f"@{h2h['away']}" if h2h.get('away') else "N/A"
 
-    # HTML para la Mejor Apuesta recomendada
     best_bet_html = ""
     if best:
-        best_bet_html = f"""
-        <div style="background:#00e67615; color:#00e676; border:1px solid #00e67640; 
-                    padding:6px; border-radius:8px; font-size:12px; font-weight:700; 
-                    text-align:center; margin-top:12px; letter-spacing:0.3px;">
-            🔥 Destacada: {best['label']} ({best['odds']})
-        </div>
-        """
+        best_bet_html = f"""<div style="background:#00e67615; color:#00e676; border:1px solid #00e67640; padding:6px; border-radius:8px; font-size:12px; font-weight:700; text-align:center; margin-top:12px; letter-spacing:0.3px;">🔥 Destacada: {best['label']} ({best['odds']})</div>"""
 
-    return f"""
-<div style="background:#161c2b;border-radius:12px;padding:14px;border:1px solid #2a3349;
-            margin-bottom:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-    <span style="color:#8b949e;font-size:12px;font-weight:600;">📅 {fecha}</span>
-    <span style="background:#2d3748;color:#e1e1e1;font-size:10px;padding:3px 8px;border-radius:20px;font-weight:800;">M {idx}</span>
-  </div>
-
-  <div style="display:flex;align-items:center;margin-bottom:14px;">
-    <div style="flex:1;text-align:center;">
-      <div style="font-size:36px;line-height:1.1;margin-bottom:4px;">{flag(home_en)}</div>
-      <div style="color:#e1e1e1;font-weight:700;font-size:13px;">{home_es}</div>
-      <div style="color:#00e676;font-size:12px;font-weight:800;margin-top:2px;">{odd_h}</div>
-    </div>
-    
-    <div style="flex:1;text-align:center;">
-      <div style="color:#6b7280;font-size:13px;font-weight:900;letter-spacing:1px;margin-bottom:2px;">VS</div>
-      <div style="color:#8b949e;font-size:10px;font-weight:600;">EMP</div>
-      <div style="color:#e1e1e1;font-size:12px;font-weight:700;">{odd_d}</div>
-    </div>
-    
-    <div style="flex:1;text-align:center;">
-      <div style="font-size:36px;line-height:1.1;margin-bottom:4px;">{flag(away_en)}</div>
-      <div style="color:#e1e1e1;font-weight:700;font-size:13px;">{away_es}</div>
-      <div style="color:#00e676;font-size:12px;font-weight:800;margin-top:2px;">{odd_a}</div>
-    </div>
-  </div>
-
-  <div style="display:flex;border-radius:8px;overflow:hidden;height:22px;box-shadow:inset 0 1px 3px rgba(0,0,0,0.3);">
-    <div style="background:#22c55e;width:{hp}%;display:flex;align-items:center;
-                justify-content:center;color:white;font-size:11px;font-weight:800;min-width:24px;">{hp}%</div>
-    <div style="background:#4b5563;width:{dp}%;display:flex;align-items:center;
-                justify-content:center;color:#e1e1e1;font-size:10px;font-weight:600;min-width:24px;">{dp}%</div>
-    <div style="background:#ef4444;width:{ap}%;display:flex;align-items:center;
-                justify-content:center;color:white;font-size:11px;font-weight:800;min-width:24px;">{ap}%</div>
-  </div>
-  
-  {best_bet_html}
+    return f"""<div style="background:#161c2b;border-radius:12px;padding:14px;border:1px solid #2a3349;margin-bottom:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+<span style="color:#8b949e;font-size:12px;font-weight:600;">📅 {fecha}</span>
+<span style="background:#2d3748;color:#e1e1e1;font-size:10px;padding:3px 8px;border-radius:20px;font-weight:800;">M {idx}</span>
+</div>
+<div style="display:flex;align-items:center;margin-bottom:14px;">
+<div style="flex:1;text-align:center;">
+<div style="font-size:36px;line-height:1.1;margin-bottom:4px;">{flag(home_en)}</div>
+<div style="color:#e1e1e1;font-weight:700;font-size:13px;">{home_es}</div>
+<div style="color:#00e676;font-size:12px;font-weight:800;margin-top:2px;">{odd_h}</div>
+</div>
+<div style="flex:1;text-align:center;">
+<div style="color:#6b7280;font-size:13px;font-weight:900;letter-spacing:1px;margin-bottom:2px;">VS</div>
+<div style="color:#8b949e;font-size:10px;font-weight:600;">EMP</div>
+<div style="color:#e1e1e1;font-size:12px;font-weight:700;">{odd_d}</div>
+</div>
+<div style="flex:1;text-align:center;">
+<div style="font-size:36px;line-height:1.1;margin-bottom:4px;">{flag(away_en)}</div>
+<div style="color:#e1e1e1;font-weight:700;font-size:13px;">{away_es}</div>
+<div style="color:#00e676;font-size:12px;font-weight:800;margin-top:2px;">{odd_a}</div>
+</div>
+</div>
+<div style="display:flex;border-radius:8px;overflow:hidden;height:22px;box-shadow:inset 0 1px 3px rgba(0,0,0,0.3);">
+<div style="background:#22c55e;width:{hp}%;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:800;min-width:24px;">{hp}%</div>
+<div style="background:#4b5563;width:{dp}%;display:flex;align-items:center;justify-content:center;color:#e1e1e1;font-size:10px;font-weight:600;min-width:24px;">{dp}%</div>
+<div style="background:#ef4444;width:{ap}%;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:800;min-width:24px;">{ap}%</div>
+</div>
+{best_bet_html}
 </div>"""
 
 # ═══════════════════════════════════════════════════════════════
