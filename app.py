@@ -106,11 +106,7 @@ def obtener_estadisticas_apisports(fixture_id, api_key):
         return []
 
 # ═══════════════════════════════════════════════
-# CLAVES API HARDCODEADAS
-# ═══════════════════════════════════════════════
-# Reemplaza los textos vacíos con tus claves correspondientes
-# ═══════════════════════════════════════════════
-# CLAVES API SEGUROS (SECRETS)
+# CLAVES API SEGURAS (DESDE SECRETS)
 # ═══════════════════════════════════════════════
 api_gemini = st.secrets.get("GEMINI_API", "")
 api_odds = st.secrets.get("ODDS_API", "")
@@ -253,9 +249,8 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Ya no necesitamos pedir contraseñas si las dejas en el código arriba.
 if not online:
-    st.warning("⚠️ Asegúrate de rellenar tus variables 'api_gemini' y 'api_odds' en el código (Línea 119).")
+    st.warning("⚠️ Asegúrate de cargar tus claves (GEMINI_API, ODDS_API, SPORTS_API) en los secretos de tu entorno (ej. Streamlit Cloud).")
 
 # ─── SELECCIÓN DE LIGA Y CARGA DE PARTIDOS ─────────────────────────────
 st.markdown("<p style='color:#8b949e; font-size:12px; font-weight:600; margin-bottom:5px;'>🏆 Competición</p>", unsafe_allow_html=True)
@@ -290,7 +285,7 @@ if upcoming_matches:
 st.markdown("---")
 
 if st.button("🚀 Generar Análisis Cuantitativo"):
-    if not online: st.error("❌ Faltan Claves API en el código fuente.")
+    if not online: st.error("❌ Faltan Claves API en los secretos del sistema.")
     elif not selected_matches: st.error("❌ Selecciona al menos un partido.")
     else:
         # 1. Obtener la fecha del primer partido para API-Sports
@@ -337,11 +332,11 @@ Responde ÚNICAMENTE con este JSON para cada partido:
   }}
 }}
 """
-                with st.spinner("🧠 El algoritmo de Gemini está procesando los vectores tácticos..."):
+        with st.spinner("🧠 El algoritmo de Gemini está procesando los vectores tácticos..."):
             try:
                 client = genai.Client(api_key=api_gemini)
                 resp = client.models.generate_content(
-                    model="gemini-2.0-flash", # 👈 SOLUCIÓN: Actualizado a la versión actual
+                    model="gemini-2.0-flash", # <--- MODELO ACTUALIZADO AQUÍ
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         max_output_tokens=4000, 
