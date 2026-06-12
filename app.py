@@ -240,7 +240,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ─── CONFIGURACIÓN (Vuelven las casillas de texto) ───────────────
+# ─── CONFIGURACIÓN ───────────────────────────────────────────────
 with st.expander("⚙️  Configuración — Claves API", expanded=not online):
     c1, c2 = st.columns(2)
     with c1:
@@ -320,7 +320,7 @@ else:
 st.markdown("---")
 contexto = st.text_area(
     "📋 Contexto adicional (opcional)",
-    placeholder="Ej: Si quieres darle información a la IA sobre bajas de jugadores en estos partidos..."
+    placeholder="Ej: El equipo local llega con su estrella lesionada, habrá mucha lluvia, etc."
 )
 
 if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
@@ -348,37 +348,36 @@ if st.button("🚀 Generar Estrategias (Segura/Media/Arriesgada)"):
             }
             formatted_matches.append(p_data)
 
+        # ── NUEVO PROMPT ADAPTADO AL FORMATO EXACTO SOLICITADO ──
         prompt = f"""
-ACTÚA COMO ANALISTA DE APUESTAS DEPORTIVAS experto.
-Datos de los partidos seleccionados (en formato JSON para precisión, extraídos de los mercados 1X2 y Totales Over/Under):
+Actúa como un tipster y analista experto en apuestas deportivas de fútbol. Tu tarea es analizar los siguientes partidos seleccionados y generar tres opciones de apuestas (parleys/combinadas) categorizadas por nivel de riesgo.
+
+Datos de los partidos en formato JSON (cuotas reales extraídas de mercados 1X2 y Totales Over/Under de las casas de apuestas, junto con las probabilidades matemáticas):
 {formatted_matches}
 
-Contexto (aplica a todos los partidos relevantes): {contexto or 'Sin contexto adicional.'}
+Contexto adicional del usuario: {contexto or 'Sin contexto adicional proporcionado.'}
 
-TU TAREA es generar EXACTAMENTE tres estrategias de apuestas detalladas a continuación basadas ÚNICAMENTE en las cuotas dadas.
-PROHIBIDO: Inventar datos. Si una estrategia solicitada es imposible con los datos proporcionados, marca 'DATO INSUFICIENTE'.
+INSTRUCCIONES:
+Elige el mejor partido (o combina los mejores de la lista) para construir tus pronósticos. Usa las cuotas proporcionadas como base fundamental. Para las predicciones tácticas (córners, tarjetas, tiros), usa tu base de datos de conocimiento sobre cómo juegan estos equipos, ya que no están en el JSON.
 
-## 1. Apuesta Segura
-- Objetivo: Crear de 1 a 2 apuestas (picks) del *mismo* partido individual (de los que te pasé) con la probabilidad de éxito absoluta MÁS ALTA.
-- Formato:
-  - Partido: [Partido: Local vs Visita]
-  - Pick 1: [valor], Probabilidad calculada: [valor]%, Cuota: @[valor], Motivo: [max 15 palabras]
-  - Pick 2 (opcional): [valor], Probabilidad calculada: [valor]%, Cuota: @[valor], Motivo: [max 15 palabras]
+Antes de dar los pronósticos, haz una muy breve introducción (dos o tres líneas) sobre el contexto táctico de los partidos seleccionados basándote en los datos y tu conocimiento.
 
-## 2. Apuesta de Riesgo Medio (Combinada/Parlay)
-- Objetivo: Crear una combinada (parlay) mezclando de 3 a 5 apuestas (picks) de partidos *diferentes* (de la lista de seleccionados) pero que se jueguen el *mismo* día calendario. Prioriza las probabilidades más altas.
-- Formato:
-  - Detalles Combinada: Cuota Total aprox. @[multiplica las cuotas]
-  - [Partido 1: Local vs Visita]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 10 palabras]
-  - [Partido 2: Local vs Visita]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 10 palabras]
-  - ... repetir para todos los picks.
+Luego, entrégame las tres apuestas siguiendo ESTRICTAMENTE esta estructura y formato, utilizando encabezados "##":
 
-## 3. Apuesta Arriesgada (Combinada/Parlay Larga)
-- Objetivo: Crear una combinada más grande de 5 a 7 apuestas (picks) de partidos *diferentes* (de la lista) del *mismo* día calendario. Trata de buscar buenas cuotas pero que sigan siendo probables.
-- Formato:
-  - Detalles Combinada: Cuota Total aprox. @[multiplica las cuotas]
-  - [Partido 1]: [Pick], Prob: [valor]%, Cuota: @[valor], Motivo: [max 10 palabras]
-  - ... repetir para todos los picks.
+## 1. La Apuesta Segura (Bajo Riesgo)
+*   **Formato:** Una apuesta combinada clásica de máximo 2 selecciones. Prioriza que ambas selecciones sean de un MISMO partido de la lista.
+*   **Requisito:** Deben ser los mercados más probables basándote en el JSON (ej. Doble Oportunidad, Más/Menos goles). Justifica brevemente por qué es segura basándote en la tendencia y las probabilidades provistas.
+
+## 2. La Apuesta Moderada (Riesgo Medio)
+*   **Formato:** Una función "Crear Apuesta" (Bet Builder) de 3 a 4 selecciones para UN MISMO PARTIDO de la lista.
+*   **Requisito:** Incluye los mercados de goles/resultado del JSON y combínalos con tus propias inferencias tácticas (ej. tiros a puerta de un jugador clave, más de X córners o tarjetas). Justifica cada selección con datos tácticos o el estilo de juego real de los equipos.
+
+## 3. La Apuesta Arriesgada (Baja Inversión, Cuota Alta)
+*   **Formato:** Un parley largo de 5 a 7 selecciones. Puedes usar un "Crear Apuesta" de un solo partido o mezclar varios de la lista.
+*   **Requisito:** Aunque es arriesgada por la cantidad de líneas, CADA SELECCIÓN debe tener una alta probabilidad matemática o táctica de ocurrir. Utiliza líneas bajas de córners, faltas, o mercados del JSON. Justifica cada punto de forma rápida y directa.
+
+Tono y Estilo:
+El lenguaje debe ser profesional, objetivo y persuasivo. No uses lenguaje excesivamente complejo, pero demuestra conocimiento profundo de estadísticas y roles tácticos. 
 """
         with st.spinner("🔍 Analizando combinaciones con IA..."):
             try:
@@ -391,10 +390,9 @@ PROHIBIDO: Inventar datos. Si una estrategia solicitada es imposible con los dat
                 texto = resp.text
                 st.markdown("### 🔥 Resultados de tus Estrategias")
                 
-                # Render results in cleaner cards
+                # Render results in cleaner cards (el split("##") encajará perfecto con el prompt)
                 for sec in texto.split("##"):
                     if sec.strip():
-                        # Extract header for title and content for the card
                         lines = sec.strip().split('\n')
                         title = lines[0].strip()
                         content = '\n'.join(lines[1:]).strip()
