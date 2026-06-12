@@ -5,7 +5,7 @@ from google.genai import types
 from datetime import datetime, timezone, timedelta
 import math
 import json
-import time # Añadido para el manejo de pausas automáticas
+import time 
 
 # Manejo seguro de Zona Horaria de Chile
 try:
@@ -147,15 +147,18 @@ def fmt_fecha(iso, simple=False):
     try:
         dt = datetime.fromisoformat(iso.replace("Z","+00:00"))
         dt_chile = dt.astimezone(TZ_CHILE)
+        
         if simple: return dt_chile.strftime('%Y-%m-%d')
         dias = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"]
         meses = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+        
         return f"{dias[dt_chile.isoweekday()%7]} {dt_chile.day} {meses[dt_chile.month]} · {dt_chile.strftime('%H:%M')} (Chile)"
     except: return "Fecha no disponible · 00:00 (Chile)"
 
 def render_simplified_card(partido, idx=1):
     home_en = partido.get("home_team","Local")
     away_en = partido.get("away_team","Visita")
+    
     home_es = TRADUCCIONES.get(home_en, home_en)
     away_es = TRADUCCIONES.get(away_en, away_en)
     
@@ -163,6 +166,7 @@ def render_simplified_card(partido, idx=1):
     h2h, t_over, t_under = extraer_odds(partido)
     probs = calcular_probs(h2h)
     best = mejor_apuesta(h2h, probs, t_over, t_under, home_es, away_es)
+    
     hp, dp, ap = probs["home"], probs["draw"], probs["away"]
     
     odd_h = f"@{h2h['home']}" if h2h.get('home') else "N/A"
@@ -217,31 +221,64 @@ st.markdown("""
   section[data-testid="stSidebar"]    { display:none; }
   .block-container { padding-top:0.8rem !important; max-width:520px !important; }
 
-  label, .stTextInput label, .stTextArea label { color:#8b949e !important; font-size:12px !important; font-weight:600 !important; }
-  .stTextInput input, .stTextArea textarea { background:#161c2b !important; color:#e1e1e1 !important; border:1px solid #2d3748 !important; border-radius:10px !important; font-size:13px !important; }
-  [data-testid="stSelectbox"] > div > div { background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:10px !important; color:#e1e1e1 !important; }
-  [data-testid="stExpander"] { background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:12px !important; }
+  label, .stTextInput label, .stTextArea label { 
+      color:#8b949e !important; font-size:12px !important; font-weight:600 !important; 
+  }
+  .stTextInput input, .stTextArea textarea {
+    background:#161c2b !important; color:#e1e1e1 !important;
+    border:1px solid #2d3748 !important; border-radius:10px !important; font-size:13px !important;
+  }
+  [data-testid="stSelectbox"] > div > div {
+    background:#161c2b !important; border:1px solid #2d3748 !important;
+    border-radius:10px !important; color:#e1e1e1 !important;
+  }
+  [data-testid="stExpander"] {
+    background:#161c2b !important; border:1px solid #2d3748 !important; border-radius:12px !important;
+  }
   [data-testid="stExpanderToggleIcon"] svg { fill:#00e676 !important; }
 
-  .stButton > button { background:linear-gradient(90deg,#00e676,#00b4d8) !important; border:none !important; border-radius:12px !important; color:#0d1117 !important; font-weight:800 !important; font-size:14px !important; width:100% !important; padding:0.65em !important; }
+  .stButton > button {
+    background:linear-gradient(90deg,#00e676,#00b4d8) !important;
+    border:none !important; border-radius:12px !important;
+    color:#0d1117 !important; font-weight:800 !important;
+    font-size:14px !important; width:100% !important; padding:0.65em !important;
+  }
   .stButton > button:hover { opacity:.9; }
   
-  .btn-actualizar > button { background:#2d3748 !important; color:#e1e1e1 !important; font-size:12px !important; margin-top: 25px !important; }
+  .btn-actualizar > button {
+    background:#2d3748 !important; color:#e1e1e1 !important;
+    font-size:12px !important; margin-top: 25px !important;
+  }
 
   [data-testid="stAlert"] { border-radius:12px !important; }
   hr { border-color:#2d3748 !important; }
   
-  [data-testid="stTabs"] button { background-color: #161c2b !important; color: #8b949e !important; font-weight: 700 !important; border-radius: 8px !important; border: 1px solid #2d3748 !important; padding: 6px 16px !important; margin-right: 8px !important; }
-  [data-testid="stTabs"] button[aria-selected="true"] { background-color: #00e67615 !important; color: #00e676 !important; border: 1px solid #00e676 !important; box-shadow: 0 0 10px rgba(0,230,118,0.1) !important; }
+  /* PESTAÑAS TABS INFERIORES */
+  [data-testid="stTabs"] button {
+    background-color: #161c2b !important; color: #8b949e !important;
+    font-weight: 700 !important; border-radius: 8px !important;
+    border: 1px solid #2d3748 !important; padding: 6px 16px !important; margin-right: 8px !important;
+  }
+  [data-testid="stTabs"] button[aria-selected="true"] {
+    background-color: #00e67615 !important; color: #00e676 !important;
+    border: 1px solid #00e676 !important; box-shadow: 0 0 10px rgba(0,230,118,0.1) !important;
+  }
   
+  /* CONVERTIR RADIO BUTTONS EN PÍLDORAS */
   div[role="radiogroup"] { gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-  div[role="radiogroup"] > label { background: #161c2b !important; border: 1px solid #2d3748 !important; border-radius: 20px !important; padding: 8px 16px !important; cursor: pointer; }
+  div[role="radiogroup"] > label {
+      background: #161c2b !important; border: 1px solid #2d3748 !important; 
+      border-radius: 20px !important; padding: 8px 16px !important; cursor: pointer;
+  }
   div[role="radiogroup"] > label[data-checked="true"] { background: #00e67615 !important; border-color: #00e676 !important; }
   div[role="radiogroup"] > label span[data-baseweb="radio"] { display: none !important; }
   div[role="radiogroup"] > label p { font-size: 13px !important; color: #8b949e !important; font-weight: 600 !important; margin: 0 !important; }
   div[role="radiogroup"] > label[data-checked="true"] p { color: #00e676 !important; }
   
-  [data-testid="stCheckbox"] { background: #161c2b; padding: 10px 14px; border-radius: 8px; border: 1px solid #2d3748; margin-bottom: 5px; }
+  /* TOGGLES */
+  [data-testid="stCheckbox"] {
+      background: #161c2b; padding: 10px 14px; border-radius: 8px; border: 1px solid #2d3748; margin-bottom: 5px;
+  }
   [data-testid="stCheckbox"] label p { color: #e1e1e1 !important; font-size: 14px !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -325,7 +362,6 @@ else:
 # ─── ANÁLISIS IA CON COMPARTIMENTACIÓN Y SISTEMA ANTI-SPAM ───
 st.markdown("---")
 
-# Inicializamos variables de estado para el control de tiempo (Cooldown)
 if "last_api_call" not in st.session_state:
     st.session_state["last_api_call"] = 0
 if "base_datos_analisis" not in st.session_state:
@@ -335,10 +371,9 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
     if not api_gemini: st.error("❌ Falta la Gemini API Key.")
     elif not selected_matches: st.error("❌ Enciende el interruptor de al menos un partido.")
     else:
-        # ESCUDO 1: BLOQUEO ANTI-SPAM (COOLDOWN DE 30 SEGUNDOS)
         tiempo_actual = time.time()
         tiempo_pasado = tiempo_actual - st.session_state["last_api_call"]
-        cooldown_necesario = 30 # Segundos de espera entre peticiones a la API
+        cooldown_necesario = 5 # Lo bajamos a 5s porque 1.5-flash permite muchas peticiones
         
         formatted_matches = []
         partidos_ids = []
@@ -358,19 +393,14 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
         data = None
         origen_datos = ""
 
-        # Si el análisis ya existe en caché, lo mostramos al instante ignorando el Cooldown
         if analisis_previo:
             data = analisis_previo
             origen_datos = "📥 Recuperado desde Memoria Caché Local (0 tokens gastados)"
-        
-        # Si NO existe, revisamos si el usuario está bajo penalización por hacer clic muy rápido
         elif tiempo_pasado < cooldown_necesario:
             segundos_restantes = int(cooldown_necesario - tiempo_pasado)
-            st.warning(f"⏳ El algoritmo está enfriándose para evitar que Google te bloquee. Por favor, espera **{segundos_restantes} segundos** antes de generar un análisis nuevo.")
-        
-        # Si pasó el tiempo de seguridad, procedemos con la IA
+            st.warning(f"⏳ El algoritmo está enfriándose. Por favor, espera **{segundos_restantes} segundos**.")
         else:
-            origen_datos = "🧠 Algoritmo Quant (Gemini-3.5): Ejecutando simulación"
+            origen_datos = "🧠 Algoritmo Quant (Gemini 1.5 Flash): Ejecutando simulación"
             
             prompt = f"""
             Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
@@ -430,12 +460,9 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
             }}
             """
             
-            # ESCUDO 2: REINTENTO AUTOMÁTICO SILENCIOSO (BACKOFF)
             max_intentos = 3
             intento_actual = 0
             exito = False
-            
-            # Contenedor visual para actualizar el estado del spinner
             status_container = st.empty()
             
             while intento_actual < max_intentos and not exito:
@@ -444,8 +471,9 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
                     with st.spinner(mensaje_spinner):
                         try:
                             client = genai.Client(api_key=api_gemini)
+                            # AQUÍ ESTÁ EL CAMBIO OFICIAL AL MODELO CORRECTO
                             resp = client.models.generate_content(
-                                model="gemini-3.5-flash",
+                                model="gemini-1.5-flash",
                                 contents=prompt,
                                 config=types.GenerateContentConfig(
                                     max_output_tokens=4096, 
@@ -455,22 +483,19 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
                             )
                             data = json.loads(resp.text)
                             st.session_state["base_datos_analisis"][id_combinacion] = data
-                            st.session_state["last_api_call"] = time.time() # Actualizamos el reloj anti-spam
+                            st.session_state["last_api_call"] = time.time()
                             exito = True
-                            status_container.empty() # Limpiamos el spinner al terminar
+                            status_container.empty()
                             
                         except Exception as e:
                             intento_actual += 1
                             error_msg = str(e)
-                            # Si es un error de cuota o saturación, dormimos el código y lo intentamos de nuevo sin decirle al usuario
                             if ("429" in error_msg or "503" in error_msg or "quota" in error_msg.lower()) and intento_actual < max_intentos:
-                                time.sleep(8) # Duerme 8 segundos
+                                time.sleep(8) 
                             else:
-                                # Si ya superó los 3 intentos o es un error irrecuperable, lo mostramos
-                                st.error("❌ Los servidores de Google rechazaron todas las peticiones tras varios intentos. Por favor, intenta usar gemini-1.5-flash o espera un par de minutos.")
+                                st.error("❌ Los servidores de Google rechazaron las peticiones. Por favor, espera un par de minutos.")
                                 break
 
-        # RENDERIZAR RESULTADO FINAL
         if data:
             st.markdown("### 📈 El Veredicto del Algoritmo")
             st.caption(f"ℹ️ *{origen_datos}*")
