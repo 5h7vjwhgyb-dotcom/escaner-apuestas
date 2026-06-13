@@ -77,7 +77,6 @@ LIGAS = {
 # ═══════════════════════════════════════════════
 @st.cache_data(ttl=21600, persist="disk", show_spinner=False)
 def obtener_partidos_api(liga, api_key):
-    # Dejamos SOLO los 3 mercados universales garantizados
     mercados = "h2h,totals,spreads"
     url = (f"https://api.the-odds-api.com/v4/sports/{liga}/odds/"
            f"?apiKey={api_key}&regions=eu&markets={mercados}")
@@ -144,10 +143,10 @@ def obtener_estadisticas_futbol(local_nombre, visita_nombre, api_key):
 def obtener_analisis_ia(api_key, prompt, id_combinacion):
     client = genai.Client(api_key=api_key)
     resp = client.models.generate_content(
-        model="gemini-3.1-flash-lite", 
+        model="gemini-3.1-flash-lite",
         contents=prompt,
         config=types.GenerateContentConfig(
-            max_output_tokens=4096, 
+            max_output_tokens=4096,
             temperature=0.2,
             response_mime_type="application/json"
         )
@@ -164,7 +163,7 @@ def extraer_odds(partido):
     away = partido.get("away_team","")
     h2h = {"home":None,"draw":None,"away":None}
     t_over, t_under = {}, {}
-    otros_mercados = {} 
+    otros_mercados = {}
     
     for bk in partido.get("bookmakers",[]):
         for mkt in bk.get("markets",[]):
@@ -194,7 +193,6 @@ def extraer_odds(partido):
                     desc = o.get("description", "")
                     label = f"{nombre} {punto} {desc}".strip()
                     precio = round(o["price"], 2)
-                    
                     if label not in otros_mercados[mk_key] or precio > otros_mercados[mk_key][label]:
                         otros_mercados[mk_key][label] = precio
                         
@@ -337,7 +335,7 @@ api_gemini_ss = secret_gemini or st.session_state.get("_gem","")
 api_odds_ss   = secret_odds or st.session_state.get("_odd","")
 api_foot_ss   = secret_football or st.session_state.get("_foot","")
 
-online = bool(api_gemini_ss and api_odds_ss) # FOOTBALL API ES OPCIONAL PARA ESTAR ONLINE
+online = bool(api_gemini_ss and api_odds_ss)
 dot    = "🟢" if online else "🔴"
 badge  = "EN LÍNEA" if online else "SIN CONEXIÓN"
 bcol   = "#22c55e" if online else "#ef4444"
@@ -390,8 +388,8 @@ if upcoming_matches:
     partidos_por_dia = {}
     for p in upcoming_matches:
         fecha_str = fmt_fecha(p['commence_time'])
-        dia = fecha_str.split(" · ")[0]  
-        hora = fecha_str.split(" · ")[1] 
+        dia = fecha_str.split(" · ")[0]
+        hora = fecha_str.split(" · ")[1]
         if dia not in partidos_por_dia: partidos_por_dia[dia] = []
         partidos_por_dia[dia].append((p, hora))
         
@@ -405,7 +403,7 @@ if upcoming_matches:
 
     if selected_matches:
         st.markdown("<br>### 📊 Análisis del Mercado", unsafe_allow_html=True)
-        for i, p in enumerate(selected_matches): 
+        for i, p in enumerate(selected_matches):
             st.markdown(render_simplified_card(p, i+1), unsafe_allow_html=True)
 else:
     if api_odds_ss and isinstance(resp, dict) and "message" in resp:
@@ -415,7 +413,9 @@ else:
     else:
         st.info("Ingresa tus claves API para ver los próximos partidos disponibles.")
 
-# ─── ANÁLISIS IA AUTOMATIZADO CON LÍMITES MATEMÁTICOS Y CACHÉ LOCAL ───
+# ═══════════════════════════════════════════════════════════════
+# ANÁLISIS IA CON RAZONAMIENTO POR PICK + PICKS DESTACADOS
+# ═══════════════════════════════════════════════════════════════
 st.markdown("---")
 
 if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
@@ -432,7 +432,6 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
                 away_es = TRADUCCIONES.get(p['away_team'], p['away_team'])
                 partidos_ids.append(f"{home_es}-{away_es}")
                 
-                # Extracción de estadísticas en tiempo real
                 stats_futbol = {}
                 if api_foot_ss:
                     stats_futbol = obtener_estadisticas_futbol(home_es, away_es, api_foot_ss)
@@ -446,74 +445,122 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
 
         id_combinacion = ",".join(sorted(partidos_ids))
 
+        # ── PROMPT ACTUALIZADO CON CADENA DE RAZONAMIENTO ──────────────
         prompt = f"""
-        Actúa como un Analista Cuantitativo Deportivo (Quant) y Tipster Profesional Nivel Experto.
-        He cruzado las cuotas reales del mercado con las métricas de rendimiento estadístico (Posición en liga, Goles y Estado de Forma reciente W/D/L).
+Eres un Analista Cuantitativo Deportivo de élite. Tu misión es identificar selecciones GANADORAS y RENTABLES, no solo matemáticamente interesantes. Piensa de forma estructurada antes de proponer cada pick.
 
-        Competición: {liga_label}
-        Datos de los partidos (Cuotas, Hándicaps, Estadísticas Reales, Racha y Posición en Tabla):
-        {formatted_matches}
+Competición: {liga_label}
+Datos completos de los partidos (cuotas reales + estadísticas en tiempo real):
+{json.dumps(formatted_matches, ensure_ascii=False, indent=2)}
 
-        INSTRUCCIONES DE MERCADOS PERMITIDOS Y FILTRADO:
-        Tienes total libertad para elegir los picks más eficientes matemáticamente basándote en cruzar las cuotas con las estadísticas deportivas reales. Puedes proponer selecciones de:
-        - Ganador (1X2) y Doble Oportunidad (1X, X2, 12).
-        - Goles Totales o por Equipo (Over/Under).
-        - Ambos Equipos Anotan (Sí/No).
-        - Hándicaps Asiáticos.
+══════════════════════════════════════════════════════════════
+METODOLOGÍA DE RAZONAMIENTO OBLIGATORIA — APLICA A CADA PICK
+══════════════════════════════════════════════════════════════
+Antes de seleccionar cualquier pick, razona en 3 pasos y documéntalos:
 
-        Genera exactamente 3 estrategias estructuradas respetando estos límites de cuota:
+🔍 PASO 1 – DIAGNÓSTICO DEPORTIVO:
+Evalúa el contexto real del partido: forma reciente del equipo (W/D/L), posición en tabla, promedio goles a favor/contra, ventaja de local/visita y cualquier factor contextual determinante. ¿Quién domina claramente y por qué?
 
-        1. Estrategia 1: "🛡️ La Apuesta Segura (Bajo Riesgo)"
-           - Cuota Total Permitida: Mínimo @1.15 hasta Máximo @1.40.
-           - Cantidad de Selecciones: De 1 a 2 picks.
+📊 PASO 2 – LECTURA DEL MERCADO:
+¿La cuota ofrecida refleja fielmente la probabilidad real, o hay una ineficiencia explotable? Compara la probabilidad implícita de la cuota (1/cuota) con tu probabilidad real estimada. Si tu probabilidad real > probabilidad implícita, hay +EV (valor positivo esperado).
 
-        2. Estrategia 2: "⚖️ La Apuesta Moderada (Riesgo Medio)"
-           - Cuota Total Permitida: Mínimo @2.35 hasta Máximo @4.20.
-           - Cantidad de Selecciones: De 2 a 4 picks.
+✅ PASO 3 – VEREDICTO GANADOR:
+¿Por qué esta selección tiene alta probabilidad de ocurrir? ¿Cuál es el escenario negativo y qué tan probable es? ¿La relación riesgo/ganancia justifica apostar en ella? Da un veredicto claro y directo.
 
-        3. Estrategia 3: "🔥 La Apuesta Arriesgada (Alta Cuota)"
-           - Cuota Total Permitida: Mínimo @4.25 hasta Máximo @8.95.
-           - Cantidad de Selecciones: De 3 a 7 picks.
+══════════════════════════════════════════════════════════════
+PICKS ESPECIALES OBLIGATORIOS (Adicionales a las 3 estrategias)
+══════════════════════════════════════════════════════════════
 
-        DEBES responder ÚNICAMENTE con un objeto JSON válido usando esta estructura exacta:
+⭐ PICK ESTRELLA DEL DÍA:
+Tu UNA mejor recomendación absoluta. El pick donde convergen: mayor valor (+EV), respaldo estadístico sólido, y cuota con ineficiencia detectable. No importa si es de cuota baja o media, importa que tengas MÁS certeza que el mercado. Aplica el razonamiento de 3 pasos completo.
 
+🛡️ PICK MÁS SEGURO:
+El resultado con MAYOR probabilidad de ocurrir de todos los disponibles. Prioriza certeza sobre rentabilidad. Elige el mercado más predecible y respaldado por datos reales (puede ser Over/Under, Doble Oportunidad, etc.). No importa si la cuota es 1.10, lo que importa es que casi seguramente ocurra.
+
+══════════════════════════════════════════════════════════════
+MERCADOS DISPONIBLES PARA TUS PICKS
+══════════════════════════════════════════════════════════════
+Usa cualquiera de: Ganador 1X2 | Doble Oportunidad (1X / X2 / 12) | Over/Under Goles (elige el punto más eficiente del mercado) | Ambos Equipos Anotan (Sí/No) | Hándicap Asiático (si está disponible en los datos).
+
+══════════════════════════════════════════════════════════════
+REGLAS DE CUOTAS POR ESTRATEGIA
+══════════════════════════════════════════════════════════════
+🛡️ Estrategia Segura:     Cuota total final @1.15 – @1.40  |  1 a 2 picks
+⚖️ Estrategia Moderada:   Cuota total final @2.35 – @4.20  |  2 a 4 picks
+🔥 Estrategia Arriesgada: Cuota total final @4.25 – @8.95  |  3 a 7 picks
+
+══════════════════════════════════════════════════════════════
+FORMATO DE RESPUESTA — JSON EXACTO
+══════════════════════════════════════════════════════════════
+Responde ÚNICAMENTE con este JSON (sin bloques ```json, sin texto previo ni posterior):
+
+{{
+  "game_script": "Análisis táctico y contextual de los partidos seleccionados. Qué esperar basándote en los datos reales de forma, posición y goles.",
+
+  "pick_estrella": {{
+    "partido": "Local vs Visita",
+    "seleccion": "El mercado con mayor valor esperado del día",
+    "cuota": "X.XX",
+    "nivel_confianza": "Alta",
+    "razonamiento": "PASO 1 [Diagnóstico]: [análisis forma/posición/contexto del partido]. PASO 2 [Mercado]: [probabilidad implícita vs real, ¿hay +EV?]. PASO 3 [Veredicto]: [por qué ocurrirá y cuál es el riesgo real]."
+  }},
+
+  "pick_mas_seguro": {{
+    "partido": "Local vs Visita",
+    "seleccion": "El resultado más predecible y probable de ocurrir",
+    "cuota": "X.XX",
+    "probabilidad_estimada": "XX%",
+    "razonamiento": "Por qué este es el resultado más seguro según los datos. Qué factores lo hacen casi inevitable."
+  }},
+
+  "estrategias": [
+    {{
+      "nivel": "🛡️ La Apuesta Segura (Protección de Bankroll)",
+      "picks": [
         {{
-          "game_script": "Explica brevemente el contexto deducido basándote en las estadísticas y rachas de Football-Data, y cómo afectará la táctica del partido.",
-          "estrategias": [
-            {{
-              "nivel": "🛡️ La Apuesta Segura (Protección de Bankroll)",
-              "picks": [
-                {{"partido": "Local vs Visita", "seleccion": "Mercado elegido", "cuota": "1.30"}}
-              ],
-              "cuota_total": "1.30",
-              "justificacion": "Análisis cruzando la cuota con la racha estadística..."
-            }},
-            {{
-              "nivel": "⚖️ La Apuesta Moderada (Valor Esperado +EV)",
-              "picks": [
-                {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.80"}},
-                {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "1.50"}}
-              ],
-              "cuota_total": "2.70",
-              "justificacion": "Tesis táctica del pick..."
-            }},
-            {{
-              "nivel": "🔥 La Apuesta Arriesgada (Ineficiencia de Mercado)",
-              "picks": [
-                {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "2.50"}},
-                {{"partido": "Local vs Visita", "seleccion": "Mercado", "cuota": "2.00"}}
-              ],
-              "cuota_total": "5.00",
-              "justificacion": "Explicación del riesgo y recompensa..."
-            }}
-          ]
+          "partido": "Local vs Visita",
+          "seleccion": "Mercado elegido",
+          "cuota": "X.XX",
+          "razonamiento_pick": "PASO 1 [Diagnóstico]: ... PASO 2 [Mercado]: ... PASO 3 [Veredicto]: ..."
         }}
-        """
-        
+      ],
+      "cuota_total": "X.XX",
+      "justificacion": "Por qué esta combinación es sólida y tiene alta probabilidad de éxito."
+    }},
+    {{
+      "nivel": "⚖️ La Apuesta Moderada (+EV Balanceado)",
+      "picks": [
+        {{
+          "partido": "Local vs Visita",
+          "seleccion": "Mercado",
+          "cuota": "X.XX",
+          "razonamiento_pick": "PASO 1 [Diagnóstico]: ... PASO 2 [Mercado]: ... PASO 3 [Veredicto]: ..."
+        }}
+      ],
+      "cuota_total": "X.XX",
+      "justificacion": "Equilibrio entre valor esperado y probabilidad de acertar."
+    }},
+    {{
+      "nivel": "🔥 La Apuesta Arriesgada (Ineficiencia de Mercado)",
+      "picks": [
+        {{
+          "partido": "Local vs Visita",
+          "seleccion": "Mercado",
+          "cuota": "X.XX",
+          "razonamiento_pick": "PASO 1 [Diagnóstico]: ... PASO 2 [Mercado]: ... PASO 3 [Veredicto]: ..."
+        }}
+      ],
+      "cuota_total": "X.XX",
+      "justificacion": "Ineficiencia detectada en el mercado y potencial de ganancia multiplicada."
+    }}
+  ]
+}}
+"""
+
         data = None
         origen_datos = "📥 Análisis generado exitosamente (Sistema de Súper Caché Activo)"
         
-        with st.spinner("🧠 Consultando IA o recuperando desde Caché Local..."):
+        with st.spinner("🧠 El algoritmo está razonando pick a pick..."):
             try:
                 data = obtener_analisis_ia(api_gemini_ss, prompt, id_combinacion)
             except Exception as e:
@@ -525,46 +572,146 @@ if st.button("🚀 Ejecutar Algoritmo Quant (Análisis Automático)"):
                 else:
                     st.error(f"❌ Error al procesar respuesta de la IA. Detalle: {e}")
 
-        # RENDERIZAR RESULTADO FINAL
+        # ── RENDERIZADO DEL RESULTADO ────────────────────────────────────
         if data:
             st.markdown("### 📈 El Veredicto del Algoritmo")
             st.caption(f"ℹ️ *{origen_datos}*")
-            
+
+            # Game Script
             st.markdown(f"""
-            <div style="background:#0d1117; border-left:4px solid #8b5cf6; padding:14px 16px; border-radius:8px; margin-bottom:20px;">
-                <div style="color:#a78bfa; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;">⚡ Game Script (Contexto Deducido)</div>
-                <div style="font-size:14px; color:#e1e1e1; line-height:1.5;"><i>"{data.get('game_script', '')}"</i></div>
+            <div style="background:#0d1117;border-left:4px solid #8b5cf6;padding:14px 16px;border-radius:8px;margin-bottom:20px;">
+                <div style="color:#a78bfa;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">⚡ Game Script (Contexto Deducido)</div>
+                <div style="font-size:14px;color:#e1e1e1;line-height:1.5;"><i>"{data.get('game_script', '')}"</i></div>
             </div>
             """, unsafe_allow_html=True)
-            
+
+            # ── PICKS DESTACADOS: ESTRELLA + MÁS SEGURO ─────────────────
+            pick_e = data.get('pick_estrella', {})
+            pick_s = data.get('pick_mas_seguro', {})
+
+            if pick_e or pick_s:
+                st.markdown("""
+                <div style="color:#e1e1e1;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+                  <span style="display:inline-block;width:28px;height:2px;background:linear-gradient(90deg,#f59e0b,transparent);border-radius:2px;"></span>
+                  PICKS DESTACADOS DEL DÍA
+                  <span style="display:inline-block;flex:1;height:2px;background:linear-gradient(90deg,transparent,#f59e0b20);border-radius:2px;"></span>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col_e, col_s = st.columns(2)
+
+                with col_e:
+                    if pick_e:
+                        confianza = pick_e.get('nivel_confianza', 'Alta')
+                        confianza_color = "#22c55e" if confianza == 'Alta' else "#f59e0b" if confianza == 'Media' else "#ef4444"
+                        st.markdown(f"""
+                        <div style="background:linear-gradient(145deg,#1c1400,#0d1117);border:2px solid #f59e0b;border-radius:14px;padding:16px;min-height:170px;box-shadow:0 0 20px rgba(245,158,11,0.12);">
+                            <div style="color:#f59e0b;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;">⭐ PICK ESTRELLA</div>
+                            <div style="color:#fef3c7;font-size:11px;font-weight:700;margin-bottom:3px;opacity:0.8;">{pick_e.get('partido','')}</div>
+                            <div style="color:#ffffff;font-size:14px;font-weight:800;margin-bottom:14px;line-height:1.3;">{pick_e.get('seleccion','')}</div>
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <span style="background:#f59e0b;color:#0d1117;padding:6px 14px;border-radius:8px;font-weight:900;font-size:18px;">@{pick_e.get('cuota','')}</span>
+                                <span style="border:1px solid {confianza_color};color:{confianza_color};padding:4px 9px;border-radius:10px;font-size:10px;font-weight:800;">🎯 {confianza}</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                with col_s:
+                    if pick_s:
+                        prob = pick_s.get('probabilidad_estimada', '?%')
+                        st.markdown(f"""
+                        <div style="background:linear-gradient(145deg,#001a0d,#0d1117);border:2px solid #22c55e;border-radius:14px;padding:16px;min-height:170px;box-shadow:0 0 20px rgba(34,197,94,0.12);">
+                            <div style="color:#22c55e;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;">🛡️ MÁS SEGURO</div>
+                            <div style="color:#dcfce7;font-size:11px;font-weight:700;margin-bottom:3px;opacity:0.8;">{pick_s.get('partido','')}</div>
+                            <div style="color:#ffffff;font-size:14px;font-weight:800;margin-bottom:14px;line-height:1.3;">{pick_s.get('seleccion','')}</div>
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <span style="background:#22c55e;color:#0d1117;padding:6px 14px;border-radius:8px;font-weight:900;font-size:18px;">@{pick_s.get('cuota','')}</span>
+                                <span style="border:1px solid #22c55e;color:#22c55e;padding:4px 9px;border-radius:10px;font-size:10px;font-weight:800;">📊 {prob}</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                # Razonamiento de los picks destacados (expandible)
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                col_re, col_rs = st.columns(2)
+
+                with col_re:
+                    if pick_e.get('razonamiento'):
+                        with st.expander("🧠 Ver análisis del Pick Estrella"):
+                            razon = pick_e['razonamiento']
+                            razon_fmt = (razon
+                                .replace('PASO 1', '<b style="color:#f59e0b">🔍 PASO 1</b>')
+                                .replace('PASO 2', '<b style="color:#f59e0b">📊 PASO 2</b>')
+                                .replace('PASO 3', '<b style="color:#f59e0b">✅ PASO 3</b>')
+                                .replace('[Diagnóstico]', '<span style="color:#a78bfa">[Diagnóstico]</span>')
+                                .replace('[Mercado]', '<span style="color:#a78bfa">[Mercado]</span>')
+                                .replace('[Veredicto]', '<span style="color:#a78bfa">[Veredicto]</span>')
+                            )
+                            st.markdown(f"""<div style="background:#1c1400;padding:13px;border-radius:8px;color:#cbd5e1;font-size:12px;line-height:1.65;border:1px solid #f59e0b30;">{razon_fmt}</div>""", unsafe_allow_html=True)
+
+                with col_rs:
+                    if pick_s.get('razonamiento'):
+                        with st.expander("🧠 Ver análisis del Pick Más Seguro"):
+                            st.markdown(f"""<div style="background:#001a0d;padding:13px;border-radius:8px;color:#cbd5e1;font-size:12px;line-height:1.65;border:1px solid #22c55e30;">{pick_s['razonamiento']}</div>""", unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("""
+            <div style="color:#8b949e;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;">📊 ESTRATEGIAS POR NIVEL DE RIESGO</div>
+            """, unsafe_allow_html=True)
+
+            # ── ESTRATEGIAS CON RAZONAMIENTO POR PICK ───────────────────
             tabs = st.tabs(["🛡️ Segura", "⚖️ Moderada", "🔥 Arriesgada"])
-            
+
             for i, tab in enumerate(tabs):
                 with tab:
                     est = data['estrategias'][i]
                     picks_html = ""
+
                     for pick in est['picks']:
-                        picks_html += f"""<div style="background:#0f172a; padding:12px; border-radius:8px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; border:1px solid #1e293b;">
-<div style="display:flex; flex-direction:column;">
-<span style="color:#8b949e; font-size:11px; font-weight:700;">⚽ {pick['partido']}</span>
-<span style="color:#e1e1e1; font-size:14px; font-weight:600; margin-top:2px;">{pick['seleccion']}</span>
-</div>
-<span style="background:#10b981; color:#0f172a; padding:4px 10px; border-radius:6px; font-weight:800; font-size:13px;">@{pick['cuota']}</span>
+                        razonamiento = pick.get('razonamiento_pick', '')
+                        raz_block = ""
+
+                        if razonamiento:
+                            raz_fmt = (razonamiento
+                                .replace('PASO 1', '<b style="color:#818cf8">🔍 PASO 1</b>')
+                                .replace('PASO 2', '<b style="color:#818cf8">📊 PASO 2</b>')
+                                .replace('PASO 3', '<b style="color:#818cf8">✅ PASO 3</b>')
+                                .replace('[Diagnóstico]', '<span style="color:#94a3b8">[Diagnóstico]</span>')
+                                .replace('[Mercado]', '<span style="color:#94a3b8">[Mercado]</span>')
+                                .replace('[Veredicto]', '<span style="color:#94a3b8">[Veredicto]</span>')
+                            )
+                            raz_block = f"""
+<div style="background:#0a0f1e;padding:10px 12px;border-radius:6px;border-left:3px solid #8b5cf6;margin-top:9px;">
+  <div style="color:#a78bfa;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:5px;">🧠 Razonamiento del algoritmo</div>
+  <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin:0;">{raz_fmt}</p>
 </div>"""
-                    
-                    st.markdown(f"""<div style="background:#161c2b; border:2px dashed #2d3748; border-radius:12px; padding:16px; margin-top:8px;">
-<h4 style="color:#f8fafc; margin-top:0; border-bottom:1px solid #2d3748; padding-bottom:10px; margin-bottom:16px;">{est['nivel']}</h4>
-{picks_html}
-<div style="display:flex; justify-content:flex-end; margin-top:16px; margin-bottom:16px;">
-<div style="background:#8b5cf615; border:1px solid #8b5cf6; padding:8px 16px; border-radius:8px;">
-<span style="color:#c4b5fd; font-size:12px; font-weight:700;">CUOTA TOTAL APROX:</span>
-<span style="color:#a78bfa; font-size:18px; font-weight:900; margin-left:8px;">@{est['cuota_total']}</span>
-</div>
-</div>
-<div style="background:#1e293b; padding:12px; border-radius:8px; border-left:3px solid #f59e0b;">
-<span style="color:#fcd34d; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px;">Tesis Cuantitativa (+EV)</span>
-<p style="color:#cbd5e1; font-size:13px; line-height:1.5; margin-top:6px; margin-bottom:0;">{est['justificacion']}</p>
-</div>
+
+                        picks_html += f"""
+<div style="background:#0f172a;padding:13px;border-radius:10px;margin-bottom:10px;border:1px solid #1e293b;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div style="display:flex;flex-direction:column;flex:1;padding-right:10px;">
+      <span style="color:#8b949e;font-size:11px;font-weight:700;margin-bottom:3px;">⚽ {pick['partido']}</span>
+      <span style="color:#e1e1e1;font-size:14px;font-weight:700;">{pick['seleccion']}</span>
+    </div>
+    <span style="background:#10b981;color:#0f172a;padding:5px 12px;border-radius:7px;font-weight:900;font-size:14px;white-space:nowrap;">@{pick['cuota']}</span>
+  </div>
+  {raz_block}
+</div>"""
+
+                    st.markdown(f"""
+<div style="background:#161c2b;border:2px dashed #2d3748;border-radius:12px;padding:16px;margin-top:8px;">
+  <h4 style="color:#f8fafc;margin-top:0;border-bottom:1px solid #2d3748;padding-bottom:10px;margin-bottom:16px;">{est['nivel']}</h4>
+  {picks_html}
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;margin-bottom:16px;">
+    <div style="background:#8b5cf615;border:1px solid #8b5cf6;padding:8px 16px;border-radius:8px;">
+      <span style="color:#c4b5fd;font-size:12px;font-weight:700;">CUOTA TOTAL APROX:</span>
+      <span style="color:#a78bfa;font-size:18px;font-weight:900;margin-left:8px;">@{est['cuota_total']}</span>
+    </div>
+  </div>
+  <div style="background:#1e293b;padding:12px;border-radius:8px;border-left:3px solid #f59e0b;">
+    <span style="color:#fcd34d;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Tesis Cuantitativa (+EV)</span>
+    <p style="color:#cbd5e1;font-size:13px;line-height:1.5;margin-top:6px;margin-bottom:0;">{est['justificacion']}</p>
+  </div>
 </div>""", unsafe_allow_html=True)
 
 st.markdown('<div style="height:30px;"></div>', unsafe_allow_html=True)
