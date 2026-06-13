@@ -152,7 +152,21 @@ def obtener_analisis_ia(api_key, prompt, id_combinacion):
             response_mime_type="application/json"
         )
     )
-    return json.loads(resp.text)
+    
+    # --- FILTRO DE LIMPIEZA JSON ---
+    texto_ia = resp.text.strip()
+    
+    # Encontrar exactamente dónde empieza y termina el JSON real
+    inicio = texto_ia.find('{')
+    fin = texto_ia.rfind('}')
+    
+    if inicio != -1 and fin != -1:
+        # Extraer solo la parte que es JSON válido
+        texto_limpio = texto_ia[inicio:fin+1]
+    else:
+        texto_limpio = texto_ia # Fallback de seguridad
+        
+    return json.loads(texto_limpio)
 
 # ═══════════════════════════════════════════════
 # HELPERS
@@ -252,39 +266,33 @@ def render_simplified_card(partido, idx=1):
         best_bet_html = f"""<div style="background:#00e67615; color:#00e676; border:1px solid #00e67660; padding:8px; border-radius:8px; font-size:13px; font-weight:800; text-align:center; margin-top:16px; box-shadow: 0 2px 8px rgba(0,230,118,0.1);">💡 Valor Matemático: {best['label']} ({best['odds']})</div>"""
 
     return f"""<div style="background:#161c2b;border-radius:12px;padding:16px;border:1px solid #2a3349;margin-bottom:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;box-shadow:0 4px 6px rgba(0,0,0,0.2);">
-    
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <span style="color:#8b949e;font-size:12px;font-weight:600;">📅 {fecha}</span>
-        <span style="background:#2d3748;color:#e1e1e1;font-size:10px;padding:3px 8px;border-radius:20px;font-weight:800;">M {idx}</span>
-    </div>
-    
-    <div style="display:flex;align-items:flex-end;margin-bottom:16px;">
-        <div style="flex:1;text-align:center; display:flex; flex-direction:column; align-items:center;">
-            <div style="font-size:36px;line-height:1.1;margin-bottom:6px;">{flag(home_en)}</div>
-            <div style="color:#e1e1e1;font-weight:700;font-size:13px;margin-bottom:8px;">{home_es}</div>
-            <div style="background:#22c55e15; border:1px solid #22c55e50; color:#22c55e; padding:4px 12px; border-radius:6px; font-size:14px; font-weight:800;">{odd_h}</div>
-        </div>
-        
-        <div style="flex:1;text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:flex-end;">
-            <div style="color:#8b949e;font-size:11px;font-weight:700;letter-spacing:1px;margin-bottom:8px;">EMPATE</div>
-            <div style="background:#4b556330; border:1px solid #4b556380; color:#e1e1e1; padding:4px 12px; border-radius:6px; font-size:14px; font-weight:800;">{odd_d}</div>
-        </div>
-        
-        <div style="flex:1;text-align:center; display:flex; flex-direction:column; align-items:center;">
-            <div style="font-size:36px;line-height:1.1;margin-bottom:6px;">{flag(away_en)}</div>
-            <div style="color:#e1e1e1;font-weight:700;font-size:13px;margin-bottom:8px;">{away_es}</div>
-            <div style="background:#ef444415; border:1px solid #ef444450; color:#ef4444; padding:4px 12px; border-radius:6px; font-size:14px; font-weight:800;">{odd_a}</div>
-        </div>
-    </div>
-    
-    <div style="display:flex;border-radius:6px;overflow:hidden;height:24px;box-shadow:inset 0 1px 3px rgba(0,0,0,0.3);">
-        <div style="background:#22c55e;width:{hp}%;display:flex;align-items:center;justify-content:center;color:#0d1117;font-size:11px;font-weight:900;min-width:24px;">{hp}%</div>
-        <div style="background:#4b5563;width:{dp}%;display:flex;align-items:center;justify-content:center;color:#e1e1e1;font-size:11px;font-weight:700;min-width:24px;">{dp}%</div>
-        <div style="background:#ef4444;width:{ap}%;display:flex;align-items:center;justify-content:center;color:#0d1117;font-size:11px;font-weight:900;min-width:24px;">{ap}%</div>
-    </div>
-    
-    {best_bet_html}
-    </div>"""
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+<span style="color:#8b949e;font-size:12px;font-weight:600;">📅 {fecha}</span>
+<span style="background:#2d3748;color:#e1e1e1;font-size:10px;padding:3px 8px;border-radius:20px;font-weight:800;">M {idx}</span>
+</div>
+<div style="display:flex;align-items:flex-end;margin-bottom:16px;">
+<div style="flex:1;text-align:center; display:flex; flex-direction:column; align-items:center;">
+<div style="font-size:36px;line-height:1.1;margin-bottom:6px;">{flag(home_en)}</div>
+<div style="color:#e1e1e1;font-weight:700;font-size:13px;margin-bottom:8px;">{home_es}</div>
+<div style="background:#22c55e15; border:1px solid #22c55e50; color:#22c55e; padding:4px 12px; border-radius:6px; font-size:14px; font-weight:800;">{odd_h}</div>
+</div>
+<div style="flex:1;text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:flex-end;">
+<div style="color:#8b949e;font-size:11px;font-weight:700;letter-spacing:1px;margin-bottom:8px;">EMPATE</div>
+<div style="background:#4b556330; border:1px solid #4b556380; color:#e1e1e1; padding:4px 12px; border-radius:6px; font-size:14px; font-weight:800;">{odd_d}</div>
+</div>
+<div style="flex:1;text-align:center; display:flex; flex-direction:column; align-items:center;">
+<div style="font-size:36px;line-height:1.1;margin-bottom:6px;">{flag(away_en)}</div>
+<div style="color:#e1e1e1;font-weight:700;font-size:13px;margin-bottom:8px;">{away_es}</div>
+<div style="background:#ef444415; border:1px solid #ef444450; color:#ef4444; padding:4px 12px; border-radius:6px; font-size:14px; font-weight:800;">{odd_a}</div>
+</div>
+</div>
+<div style="display:flex;border-radius:6px;overflow:hidden;height:24px;box-shadow:inset 0 1px 3px rgba(0,0,0,0.3);">
+<div style="background:#22c55e;width:{hp}%;display:flex;align-items:center;justify-content:center;color:#0d1117;font-size:11px;font-weight:900;min-width:24px;">{hp}%</div>
+<div style="background:#4b5563;width:{dp}%;display:flex;align-items:center;justify-content:center;color:#e1e1e1;font-size:11px;font-weight:700;min-width:24px;">{dp}%</div>
+<div style="background:#ef4444;width:{ap}%;display:flex;align-items:center;justify-content:center;color:#0d1117;font-size:11px;font-weight:900;min-width:24px;">{ap}%</div>
+</div>
+{best_bet_html}
+</div>"""
 
 # ═══════════════════════════════════════════════════════════════
 # APP UI
