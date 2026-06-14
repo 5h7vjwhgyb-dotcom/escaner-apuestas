@@ -1,11 +1,18 @@
 import streamlit as st
 import requests
+import re
 from google import genai
 from google.genai import types
 from datetime import datetime, timezone, timedelta
 import json
 from supabase import create_client, Client
 from collections import defaultdict
+
+def compact(html_str):
+    """Colapsa HTML multi-línea a una sola línea.
+    Evita que el parser de Markdown de Streamlit interprete líneas
+    con sangría como bloques de código (≥4 espacios = <pre><code>)."""
+    return re.sub(r'\n\s*', '', str(html_str))
 
 # ─── Zona Horaria Chile ─────────────────────────────────────────
 try:
@@ -340,7 +347,7 @@ Si al menos un pick falló → responde solo "fallido".
 Si faltan resultados → responde solo "pendiente"."""
                     try:
                         res = client.models.generate_content(
-                            model="gemini-3.1-flash-lite", contents=prompt,
+                            model="gemini-2.0-flash-lite", contents=prompt,
                             config=types.GenerateContentConfig(temperature=0.0)
                         ).text.strip().lower()
                         if "acertado" in res:   updates[col] = "acertado"
@@ -413,7 +420,7 @@ Responde ÚNICAMENTE con este JSON estructurado (sin texto extra, sin bloques ma
     try:
         client = genai.Client(api_key=api_key)
         resp = client.models.generate_content(
-            model="gemini-3.1-flash-lite", contents=prompt,
+            model="gemini-2.0-flash-lite", contents=prompt,
             config=types.GenerateContentConfig(
                 max_output_tokens=4096, temperature=0.1, response_mime_type="application/json"
             )
@@ -455,12 +462,14 @@ with tab1:
 
         for fecha_label, partidos_dia in grupos.items():
             n = len(partidos_dia)
-            st.markdown(f"""
-            <div class="date-sep">
-              <div class="date-badge">📅 {fecha_label}</div>
-              <div class="date-line"></div>
-              <div class="date-cnt">{n} partido{"s" if n > 1 else ""}</div>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(
+                '<div class="date-sep">'
+                f'<div class="date-badge">📅 {fecha_label}</div>'
+                '<div class="date-line"></div>'
+                f'<div class="date-cnt">{n} partido{"s" if n > 1 else ""}</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
 
             for p in partidos_dia:
                 h2h  = extraer_h2h(p)
@@ -468,28 +477,30 @@ with tab1:
                 away = p["away_team"]
                 hora = fmt_hora(p["commence_time"])
 
-                # ── Barras de probabilidad ──────────────────
+
+
+                # ── Barras de probabilidad (HTML inline, sin sangría) ──
+                # compact() colapsa todo a una línea → evita el bug del parser Markdown
                 if h2h:
                     pw, dw, aw = h2h["home"], h2h["draw"], h2h["away"]
                     ho, do_, ao = h2h["home_odd"], h2h["draw_odd"], h2h["away_odd"]
-                    prob_html = f"""
-                    <div class="prob-wrap">
-                      <div class="prob-labels">
-                        <span>{tr(home)}</span>
-                        <span>Empate</span>
-                        <span>{tr(away)}</span>
-                      </div>
-                      <div class="prob-bar">
-                        <div class="pb-h" style="width:{pw}%"></div>
-                        <div class="pb-d" style="width:{dw}%"></div>
-                        <div class="pb-a" style="width:{aw}%"></div>
-                      </div>
-                      <div class="prob-pcts">
-                        <span class="pct-h">{pw}%</span>
-                        <span class="pct-d">{dw}%</span>
-                        <span class="pct-a">{aw}%</span>
-                      </div>
-                    </div>"""
+                    prob_html = (
+                        '<div class="prob-wrap">'
+                        '<div class="prob-labels">'
+                        f'<span>{tr(home)}</span><span>Empate</span><span>{tr(away)}</span>'
+                        '</div>'
+                        '<div class="prob-bar">'
+                        f'<div class="pb-h" style="width:{pw}%"></div>'
+                        f'<div class="pb-d" style="width:{dw}%"></div>'
+                        f'<div class="pb-a" style="width:{aw}%"></div>'
+                        '</div>'
+                        '<div class="prob-pcts">'
+                        f'<span class="pct-h">{pw}%</span>'
+                        f'<span class="pct-d">{dw}%</span>'
+                        f'<span class="pct-a">{aw}%</span>'
+                        '</div>'
+                        '</div>'
+                    )
                     c_home = f"@{ho:.2f}"
                     c_draw = f"@{do_:.2f}" if do_ else ""
                     c_away = f"@{ao:.2f}"
@@ -497,28 +508,34 @@ with tab1:
                     prob_html = ""
                     c_home = c_draw = c_away = ""
 
-                # ── Tarjeta del partido ─────────────────────
-                st.markdown(f"""
-                <div class="mcard">
-                  <div class="teams-row">
-                    <div class="team-blk">
-                      <div class="t-flag">{fl(home)}</div>
-                      <div class="t-name">{tr(home)}</div>
-                      {"<div class='t-cuota'>" + c_home + "</div>" if c_home else ""}
-                    </div>
-                    <div class="center-blk">
-                      <div class="mc-time">{hora}</div>
-                      <div class="mc-vs">VS</div>
-                      {"<div class='mc-draw'>" + c_draw + "</div>" if c_draw else ""}
-                    </div>
-                    <div class="team-blk">
-                      <div class="t-flag">{fl(away)}</div>
-                      <div class="t-name">{tr(away)}</div>
-                      {"<div class='t-cuota'>" + c_away + "</div>" if c_away else ""}
-                    </div>
-                  </div>
-                  {prob_html}
-                </div>""", unsafe_allow_html=True)
+                # ── Tarjeta del partido (todo en una sola línea) ─────────────
+                t_home = (
+                    '<div class="team-blk">'
+                    f'<div class="t-flag">{fl(home)}</div>'
+                    f'<div class="t-name">{tr(home)}</div>'
+                    + (f'<div class="t-cuota">{c_home}</div>' if c_home else '')
+                    + '</div>'
+                )
+                t_center = (
+                    '<div class="center-blk">'
+                    f'<div class="mc-time">{hora}</div>'
+                    '<div class="mc-vs">VS</div>'
+                    + (f'<div class="mc-draw">{c_draw}</div>' if c_draw else '')
+                    + '</div>'
+                )
+                t_away = (
+                    '<div class="team-blk">'
+                    f'<div class="t-flag">{fl(away)}</div>'
+                    f'<div class="t-name">{tr(away)}</div>'
+                    + (f'<div class="t-cuota">{c_away}</div>' if c_away else '')
+                    + '</div>'
+                )
+                st.markdown(
+                    '<div class="mcard">'
+                    '<div class="teams-row">' + t_home + t_center + t_away + '</div>'
+                    + prob_html + '</div>',
+                    unsafe_allow_html=True,
+                )
 
                 # ── Footer de selección (con clase wrapper) ─
                 st.markdown('<div class="mcard-footer">', unsafe_allow_html=True)
@@ -571,15 +588,17 @@ with tab1:
                 )
 
             def render_slip(clase, titulo, cuota, picks_html, desc):
-                st.markdown(f"""
-                <div class="tslip {clase}">
-                  <div class="slip-hdr">
-                    <span class="slip-tit">{titulo}</span>
-                    <span class="slip-q">@{cuota}</span>
-                  </div>
-                  {picks_html}
-                  <div class="slip-desc"><b>Veredicto:</b> {tr_pick(desc)}</div>
-                </div>""", unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="tslip {clase}">'
+                    f'<div class="slip-hdr">'
+                    f'<span class="slip-tit">{titulo}</span>'
+                    f'<span class="slip-q">@{cuota}</span>'
+                    f'</div>'
+                    + picks_html +
+                    f'<div class="slip-desc"><b>Veredicto:</b> {tr_pick(desc)}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
             # Pick Estrella
             pe = data.get("pick_estrella", {})
@@ -651,24 +670,25 @@ with tab2:
     hit      = int(acertados / total * 100) if total > 0 else 0
     color_hr = "#00E676" if hit >= 50 else "#FFB700" if hit >= 30 else "#FF3B5C"
 
-    st.markdown(f"""
-    <div class="dash-grid">
-      <div class="d-card">
-        <div class="d-val" style="color:{color_hr};">{hit}%</div>
-        <div class="d-lbl">Hit Rate Global</div>
-      </div>
-      <div class="d-card">
-        <div class="d-val" style="color:#00E676;">{acertados}</div>
-        <div class="d-lbl">Picks Acertados</div>
-      </div>
-      <div class="d-card">
-        <div class="d-val" style="color:#FF3B5C;">{fallidos}</div>
-        <div class="d-lbl">Picks Fallados</div>
-      </div>
-    </div>
-    <p style='color:#EEF4FF;font-weight:800;font-size:13px;text-transform:uppercase;
-    letter-spacing:.5px;margin-bottom:16px;'>📋 Historial de Operaciones</p>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        '<div class="dash-grid">'
+        '<div class="d-card">'
+        f'<div class="d-val" style="color:{color_hr};">{hit}%</div>'
+        '<div class="d-lbl">Hit Rate Global</div>'
+        '</div>'
+        '<div class="d-card">'
+        f'<div class="d-val" style="color:#00E676;">{acertados}</div>'
+        '<div class="d-lbl">Picks Acertados</div>'
+        '</div>'
+        '<div class="d-card">'
+        f'<div class="d-val" style="color:#FF3B5C;">{fallidos}</div>'
+        '<div class="d-lbl">Picks Fallados</div>'
+        '</div>'
+        '</div>'
+        "<p style='color:#EEF4FF;font-weight:800;font-size:13px;text-transform:uppercase;"
+        "letter-spacing:.5px;margin-bottom:16px;'>📋 Historial de Operaciones</p>",
+        unsafe_allow_html=True,
+    )
 
     if not historial:
         st.info("No hay registros. Guarda tus primeros boletos en la pestaña anterior.")
@@ -700,14 +720,14 @@ with tab2:
                 for col_name, titulo, sel_txt in items:
                     estado = t.get(col_name, "pendiente")
                     bg = "#00E676" if estado == "acertado" else "#FF3B5C" if estado == "fallido" else "#4A5568"
-                    st.markdown(f"""
-                    <div class="hist-row" style="border-left-color:{bg};">
-                      <div>
-                        <div class="h-meta">{titulo}</div>
-                        <div class="h-txt">{sel_txt}</div>
-                      </div>
-                      <span class="h-badge" style="background:{bg};color:#fff;">{estado}</span>
-                    </div>""", unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div class="hist-row" style="border-left-color:{bg};">'
+                        f'<div><div class="h-meta">{titulo}</div>'
+                        f'<div class="h-txt">{sel_txt}</div></div>'
+                        f'<span class="h-badge" style="background:{bg};color:#fff;">{estado}</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
                     c1, c2, c3, _ = st.columns([1, 1, 1, 3])
                     if c1.button("✅", key=f"ok_{t['id']}_{col_name}", help="Marcar como Acertado"):
