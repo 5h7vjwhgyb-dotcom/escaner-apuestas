@@ -396,7 +396,11 @@ REGLA 1 (FILOSOFÍA): Busca opciones de altísima probabilidad con cuotas bajas 
 
 REGLA 2 (ANTI-CORRELACIÓN ¡ESTRICTO!): NUNCA mezcles "Ganador Directo" y "Hándicap" del MISMO partido. O usas ganador, o usas hándicap.
 
-MERCADOS PERMITIDOS: Ganador (1X2), Doble Oportunidad, Goles (Over/Under 0.5-5.5), Córners, Tarjetas, Hándicap.
+REGLA 3 (RESTRICCIÓN DE LÍNEAS OVER/UNDER): NO PUEDES colocar más de un "Over" ni más de un "Under" para el mismo mercado y tipo de pick en el mismo boleto. (Ejemplo PROHIBIDO: Over 1.5 goles + Over 2.5 goles). SÍ puedes combinar un Over y un Under complementarios (Ej: Over 0.5 goles + Under 3.5 goles) o mezclar mercados distintos (Ej: Over 1.5 goles + Over 4.5 córners + Over 1.5 tarjetas).
+
+REGLA 4 (FORMATO DE HÁNDICAP BETANO): Los hándicaps DEBEN SER exclusivamente en incrementos de 0.5 (ej. +0.5, -1.5, +2.5). ESTÁN ESTRICTAMENTE PROHIBIDOS los hándicaps asiáticos de cuartos (ej. 0.25, 0.75, 1.25, 1.75).
+
+MERCADOS PERMITIDOS: Ganador (1X2), Doble Oportunidad, Goles (Over/Under 0.5-5.5), Córners, Tarjetas, Hándicap (solo incrementos de .5).
 
 ESTRUCTURA OBLIGATORIA:
 - SEGURA: 1-2 picks. Cuotas @1.20-@1.40.
