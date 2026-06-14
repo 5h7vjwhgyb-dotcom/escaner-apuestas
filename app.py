@@ -340,7 +340,7 @@ Si al menos un pick falló → responde solo "fallido".
 Si faltan resultados → responde solo "pendiente"."""
                     try:
                         res = client.models.generate_content(
-                            model="gemini-2.0-flash-lite", contents=prompt,
+                            model="gemini-3.1-flash-lite", contents=prompt,
                             config=types.GenerateContentConfig(temperature=0.0)
                         ).text.strip().lower()
                         if "acertado" in res:   updates[col] = "acertado"
