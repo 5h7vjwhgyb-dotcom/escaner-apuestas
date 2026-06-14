@@ -14,7 +14,7 @@ except ImportError:
     TZ_CHILE = timezone(timedelta(hours=-4))
 
 # ═══════════════════════════════════════════════════════════════
-# 1. CONFIGURACIÓN DE UI Y CSS (Estilo Quant/React)
+# 1. CONFIGURACIÓN DE UI Y CSS
 # ═══════════════════════════════════════════════════════════════
 st.set_page_config(page_title="BET⚡COMBINADAS - Mundial", layout="centered", initial_sidebar_state="collapsed")
 st.markdown("""
@@ -55,30 +55,26 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════
-# 2. SECRETS Y CONEXIONES (Supabase y APIs)
+# 2. CONEXIONES (Supabase y APIs)
 # ═══════════════════════════════════════════════════════════════
-# Claves de IA y Cuotas
 api_gemini = st.secrets.get("GEMINI_API", "") or st.session_state.get("_gem", "")
 api_odds = st.secrets.get("ODDS_API", "") or st.session_state.get("_odd", "")
-
-# Claves de Supabase
 supa_url = st.secrets.get("SUPABASE_URL", "") or st.session_state.get("_supa_url", "")
 supa_key = st.secrets.get("SUPABASE_KEY", "") or st.session_state.get("_supa_key", "")
 
 if not (api_gemini and api_odds and supa_url and supa_key):
-    st.warning("⚠️ Faltan claves. Configúralas en la nube de Streamlit o ingrésalas aquí para esta sesión.")
+    st.warning("⚠️ Faltan claves. Configúralas en la nube de Streamlit o ingrésalas aquí.")
     with st.expander("⚙️ Ingresar Claves", expanded=True):
         st.text_input("Gemini API", type="password", key="_gem")
         st.text_input("Odds API", type="password", key="_odd")
         st.text_input("Supabase URL", type="password", key="_supa_url")
-        st.text_input("Supabase Key (anon/public)", type="password", key="_supa_key")
+        st.text_input("Supabase Key", type="password", key="_supa_key")
         st.stop()
 
-# Iniciar Cliente Supabase
 supabase: Client = create_client(supa_url, supa_key)
 
 # ═══════════════════════════════════════════════════════════════
-# 3. BASE DE DATOS EN LA NUBE (Funciones Supabase)
+# 3. FUNCIONES DE SUPABASE
 # ═══════════════════════════════════════════════════════════════
 def guardar_ticket_db(liga, partidos_str, analisis_json):
     fecha = datetime.now(TZ_CHILE).strftime("%Y-%m-%d %H:%M")
@@ -88,24 +84,34 @@ def guardar_ticket_db(liga, partidos_str, analisis_json):
         "partidos": partidos_str,
         "analisis_json": json.dumps(analisis_json, ensure_ascii=False)
     }
-    supabase.table("historial").insert(data).execute()
+    try:
+        supabase.table("historial").insert(data).execute()
+        return True, ""
+    except Exception as e:
+        return False, str(e)
 
 def cargar_historial_db():
     try:
         response = supabase.table("historial").select("*").order("id", desc=True).limit(30).execute()
         return response.data
     except Exception as e:
-        st.error(f"Error conectando a Supabase: {e}")
+        st.error(f"Error cargando historial: {e}")
         return []
 
 def actualizar_resultado_db(ticket_id, campo, valor):
-    supabase.table("historial").update({campo: valor}).eq("id", ticket_id).execute()
+    try:
+        supabase.table("historial").update({campo: valor}).eq("id", ticket_id).execute()
+    except Exception as e:
+        st.error(f"Error actualizando: {e}")
 
 def eliminar_ticket_db(ticket_id):
-    supabase.table("historial").delete().eq("id", ticket_id).execute()
+    try:
+        supabase.table("historial").delete().eq("id", ticket_id).execute()
+    except Exception as e:
+        st.error(f"Error eliminando: {e}")
 
 # ═══════════════════════════════════════════════════════════════
-# 4. FUNCIONES DEL CEREBRO QUANT
+# 4. FUNCIONES DEL CEREBRO QUANT (NUEVA FILOSOFÍA)
 # ═══════════════════════════════════════════════════════════════
 @st.cache_data(ttl=3600, show_spinner=False)
 def obtener_partidos_mundial(api_key):
@@ -120,53 +126,65 @@ def obtener_partidos_mundial(api_key):
 @st.cache_data(ttl=86400, show_spinner=False)
 def ejecutar_algoritmo_quant(api_key, partidos_seleccionados):
     prompt = f"""
-Eres un Analista Cuantitativo Deportivo (+EV) implacable. Tu objetivo es encontrar errores matemáticos en la casa de apuestas BETANO comparada con el resto del mercado para el Mundial de la FIFA.
+Eres un Analista Experto en Apuestas Deportivas y Combinadas (Parlays).
+Tu ÚNICO objetivo es GANAR DINERO construyendo tickets con la mayor probabilidad de acierto posible para el Mundial de la FIFA, usando eventos muy probables.
 
-REGLAS ESTRICTAS DE MERCADO (¡NO DESVIARSE BAJO NINGUNA CIRCUNSTANCIA!):
-Solo tienes permitido sugerir picks que pertenezcan EXCLUSIVAMENTE a esta lista:
+FILOSOFÍA DE APUESTA (REGLA DE ORO):
+Busca siempre la mayor cantidad de picks posibles usando CUOTAS INDIVIDUALES MUY BAJAS Y SEGURAS. Es preferible combinar 4 cuotas de @1.25 que son casi seguras, en lugar de usar cuotas altas peligrosas. No busques ineficiencias matemáticas raras, busca ACERTAR.
+
+MERCADOS PERMITIDOS (¡NO USAR OTROS!):
 1. Ganador Directo (1, X, 2)
 2. Doble Oportunidad (1X, X2, 12)
 3. Total de Goles (Over/Under 0.5, 1.5, 2.5, 3.5, 4.5, 5.5)
 4. Córners (Over/Under)
 5. Tarjetas (Over/Under)
-6. Hándicap (Asiático o Europeo)
+6. Hándicap Asiático o Europeo
 
-INSTRUCCIÓN CRÍTICA:
-Si analizas un partido y la ineficiencia matemática (+EV) frente a BETANO NO se encuentra en uno de estos 6 mercados permitidos, tu obligación es ABORTAR el pick para ese partido.
+ESTRUCTURA DE COMBINADAS OBLIGATORIA:
+Debes armar EXACTAMENTE 3 estrategias (tickets) usando cuotas promedio o de Betano:
+1. SEGURA: 1 a 2 picks como máximo. Cuotas individuales entre @1.20 y @1.40.
+2. MODERADA: 3 a 4 picks combinados. La cuota TOTAL del ticket debe quedar entre @1.50 y @3.50. (Usa cuotas individuales bajas para llegar a este total).
+3. ARRIESGADA: 3 a 5 picks combinados. La cuota TOTAL del ticket debe quedar entre @3.50 y @7.00. 
 
-PARTIDOS A ANALIZAR (Datos en crudo del mercado):
+PARTIDOS DISPONIBLES (Datos en crudo):
 {json.dumps(partidos_seleccionados, ensure_ascii=False, indent=2)}
 
 Responde ÚNICAMENTE con este JSON exacto (sin texto markdown extra):
 {{
-  "game_script": "Diagnóstico táctico rápido de los partidos del Mundial seleccionados.",
+  "game_script": "Resumen táctico de por qué estos partidos del Mundial son ideales para apostar a cuotas bajas.",
   "pick_estrella": {{
     "partido": "Local vs Visita",
     "categoria_permitida": "Ej: Total de Goles",
-    "seleccion": "Ej: Over 2.5",
-    "cuota_betano": 1.95,
-    "cuota_promedio_mercado": 1.75,
-    "razon_cuantitativa": "Explicación del error matemático en Betano y por qué es +EV."
+    "seleccion": "Ej: Over 1.5",
+    "cuota_betano": 1.30,
+    "cuota_promedio_mercado": 1.25,
+    "razon_cuantitativa": "Por qué es el pick individual más seguro para incluir en cualquier combinada."
   }},
   "pick_mas_seguro": {{
     "partido": "Local vs Visita",
     "categoria_permitida": "Ej: Doble Oportunidad",
     "seleccion": "Ej: 1X",
-    "cuota_betano": 1.35,
-    "razon_cuantitativa": "Explicación de la alta probabilidad de acierto."
+    "cuota_betano": 1.22,
+    "razon_cuantitativa": "Explicación de su altísima probabilidad de acierto."
   }},
   "estrategias": [
     {{
       "tipo": "segura",
-      "cuota_total": 0.00,
-      "descripcion": "Protección de bankroll combinando opciones muy probables.",
-      "picks": ["P1 (Mercado)", "P2 (Mercado)"]
+      "cuota_total": 1.35,
+      "descripcion": "Apuesta casi garantizada de 1 a 2 picks para proteger dinero.",
+      "picks": ["Partido A: Selección (@1.20)", "Partido B: Selección (@1.12)"]
+    }},
+    {{
+      "tipo": "moderada",
+      "cuota_total": 2.45,
+      "descripcion": "Multiplicador seguro usando 3 a 4 picks de alta probabilidad.",
+      "picks": ["Pick 1 (@1.20)", "Pick 2 (@1.30)", "Pick 3 (@1.25)"]
     }},
     {{
       "tipo": "arriesgada",
-      "cuota_total": 0.00,
-      "descripcion": "Búsqueda agresiva de ineficiencias de mercado.",
-      "picks": ["P1", "P2"]
+      "cuota_total": 5.20,
+      "descripcion": "Máximo beneficio combinando 3 a 5 picks manteniendo cuotas individuales sensatas.",
+      "picks": ["Pick 1 (@1.40)", "Pick 2 (@1.35)", "Pick 3 (@1.45)", "Pick 4 (@1.30)"]
     }}
   ]
 }}"""
@@ -175,7 +193,7 @@ Responde ÚNICAMENTE con este JSON exacto (sin texto markdown extra):
         resp = client.models.generate_content(
             model="gemini-3.1-flash-lite", 
             contents=prompt,
-            config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.1, response_mime_type="application/json")
+            config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.2, response_mime_type="application/json")
         )
         raw_text = resp.text.strip()
         if raw_text.startswith("```json"): raw_text = raw_text[7:-3].strip()
@@ -192,7 +210,7 @@ def fmt_fecha(iso):
 # ═══════════════════════════════════════════════════════════════
 # 5. INTERFAZ DE USUARIO (TABS)
 # ═══════════════════════════════════════════════════════════════
-tab1, tab2 = st.tabs(["⚡ Escáner Mundial", "📋 Historial & Stats"])
+tab1, tab2 = st.tabs(["⚡ Armador de Combinadas", "📋 Base de Datos"])
 
 with tab1:
     st.markdown("<h4 style='color:#EEF4FF; font-weight:800; font-size:15px;'>🌍 Partidos del Mundial</h4>", unsafe_allow_html=True)
@@ -206,18 +224,18 @@ with tab1:
         st.info("No hay partidos del Mundial disponibles en este momento.")
     else:
         partidos_activos = []
-        for p in datos_api[:8]:
+        for p in datos_api[:10]:
             lbl = f"⚽ **{p['home_team']} vs {p['away_team']}** *(🕒 {fmt_fecha(p['commence_time'])})*"
             if st.checkbox(lbl, key=p['id']):
                 partidos_activos.append(p)
         
         st.markdown("<div style='height:15px;'></div>", unsafe_allow_html=True)
         
-        if st.button("🚀 Buscar Valor (+EV) en Betano"):
+        if st.button("🚀 Armar Combinadas de Alta Probabilidad"):
             if not partidos_activos:
                 st.warning("⚠️ Selecciona al menos un partido.")
             else:
-                with st.spinner("🤖 El Francotirador Quant está buscando errores en Betano..."):
+                with st.spinner("🤖 Analizando opciones de alta probabilidad..."):
                     resultado = ejecutar_algoritmo_quant(api_gemini, partidos_activos)
                     
                 if "error" in resultado:
@@ -234,63 +252,60 @@ with tab1:
             st.markdown("<div style='height:20px;'></div><h4 style='color:#EEF4FF; font-weight:800; font-size:15px;'>📖 Lectura del Mercado</h4>", unsafe_allow_html=True)
             st.markdown(f"<div style='background:#18263A; border-left:3px solid #00C2FF; padding:12px; border-radius:0 8px 8px 0; font-size:12px; color:#8A97B5; margin-bottom:15px;'>{data.get('game_script','')}</div>", unsafe_allow_html=True)
             
-            # PICK ESTRELLA
             pe = data.get('pick_estrella', {})
             st.markdown(f"""
             <div class="pick pick-e">
-              <div class="plbl plbl-e">⭐ Pick Estrella (Máximo Valor)</div>
+              <div class="plbl plbl-e">⭐ El Pick Base (Casi Seguro)</div>
               <span style="font-weight:800; font-size:14px; display:block; margin-bottom:4px;">{pe.get('partido','')}</span>
               <span class="pcat">📁 {pe.get('categoria_permitida','')}</span>
               <div style="margin-bottom:12px; font-size:15px;">Selección: <b style="color:#fff;">{pe.get('seleccion','')}</b></div>
-              <div>
-                <span class="qb qbet">🔴 Betano @{pe.get('cuota_betano','')}</span>
-                <span class="qb qmercado">Promedio Global @{pe.get('cuota_promedio_mercado','')}</span>
-              </div>
+              <div><span class="qb qbet">🔴 Betano @{pe.get('cuota_betano','')}</span></div>
               <div style="font-size:11px; color:#8A97B5; line-height:1.5; border-top:1px solid rgba(255,255,255,.06); padding-top:10px; margin-top:10px;">
-                <b>🤖 Veredicto Quant:</b> {pe.get('razon_cuantitativa','')}
+                <b>🤖 Veredicto:</b> {pe.get('razon_cuantitativa','')}
               </div>
             </div>
             """, unsafe_allow_html=True)
             
-            # PICK SEGURO
             ps = data.get('pick_mas_seguro', {})
             st.markdown(f"""
             <div class="pick pick-s">
-              <div class="plbl plbl-s">🛡️ Pick de Alta Confianza</div>
+              <div class="plbl plbl-s">🛡️ Pick Anti-Sorpresas</div>
               <span style="font-weight:800; font-size:14px; display:block; margin-bottom:4px;">{ps.get('partido','')}</span>
               <span class="pcat">📁 {ps.get('categoria_permitida','')}</span>
               <div style="margin-bottom:12px; font-size:15px;">Selección: <b style="color:#fff;">{ps.get('seleccion','')}</b></div>
               <div><span class="qb" style="background:rgba(0,230,118,.15); border:1px solid rgba(0,230,118,.4); color:#00E676;">🔴 Betano @{ps.get('cuota_betano','')}</span></div>
               <div style="font-size:11px; color:#8A97B5; line-height:1.5; border-top:1px solid rgba(255,255,255,.06); padding-top:10px; margin-top:10px;">
-                <b>🤖 Veredicto Quant:</b> {ps.get('razon_cuantitativa','')}
+                <b>🤖 Veredicto:</b> {ps.get('razon_cuantitativa','')}
               </div>
             </div>
             """, unsafe_allow_html=True)
             
-            # ESTRATEGIAS
+            st.markdown("<h4 style='color:#EEF4FF; font-weight:800; font-size:15px; margin-top:20px;'>🔗 Combinadas Sugeridas</h4>", unsafe_allow_html=True)
             for e in data.get('estrategias', []):
                 color = "#00E676" if e['tipo'] == "segura" else "#FFB700" if e['tipo'] == "moderada" else "#FF3B5C"
                 st.markdown(f"""
                 <div class="estg">
-                  <div style="font-weight:800; color:{color}; text-transform:uppercase; font-size:11px; margin-bottom:6px;">{e['tipo']} · Cuota Betano: @{e['cuota_total']}</div>
+                  <div style="font-weight:800; color:{color}; text-transform:uppercase; font-size:11px; margin-bottom:6px;">{e['tipo']} · Cuota Total: @{e['cuota_total']}</div>
                   <div style="font-size:12px; margin-bottom:8px;">{e['descripcion']}</div>
-                  <div style="font-size:11px; color:#8A97B5; background:#0E1A2C; padding:8px; border-radius:6px;">{ ' ➕ '.join(e.get('picks',[])) }</div>
+                  <div style="font-size:11px; color:#8A97B5; background:#0E1A2C; padding:8px; border-radius:6px;">{ '<br>➕ '.join(e.get('picks',[])) }</div>
                 </div>
                 """, unsafe_allow_html=True)
 
-            # GUARDAR TICKET
             if not st.session_state.get('ticket_guardado', False):
                 st.markdown('<div class="btn-guardar">', unsafe_allow_html=True)
                 if st.button("💾 Guardar Ticket en la Nube (Supabase)"):
-                    guardar_ticket_db("Mundial 2026", st.session_state.partidos_analizados, data)
-                    st.session_state.ticket_guardado = True
-                    st.rerun()
+                    exito, msg_error = guardar_ticket_db("Mundial 2026", st.session_state.partidos_analizados, data)
+                    if exito:
+                        st.session_state.ticket_guardado = True
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Error de Supabase: {msg_error}. Asegúrate de haber ejecutado el comando para deshabilitar RLS en Supabase.")
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
-                st.success("✅ Ticket guardado para siempre. Revisa la pestaña Historial.")
+                st.success("✅ Ticket guardado para siempre. Revisa la pestaña Base de Datos.")
 
 with tab2:
-    st.markdown("<h4 style='color:#EEF4FF; font-weight:800; font-size:15px;'>📋 Base de Datos Quant</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='color:#EEF4FF; font-weight:800; font-size:15px;'>📋 Base de Datos de Combinadas</h4>", unsafe_allow_html=True)
     historial = cargar_historial_db()
     
     if not historial:
@@ -301,10 +316,9 @@ with tab2:
             with st.expander(f"🎫 {t['fecha_gen']} · {t['liga']}"):
                 st.markdown(f"<div style='font-size:10px; color:#8A97B5; margin-bottom:10px;'>{t['partidos']}</div>", unsafe_allow_html=True)
                 
-                # Botones de estado por Pick
                 for key_res, label, pick_data in [
-                    ('res_estrella', '⭐ Estrella', data.get('pick_estrella',{})),
-                    ('res_mas_seguro', '🛡️ Seguro', data.get('pick_mas_seguro',{}))
+                    ('res_estrella', '⭐ Pick Base', data.get('pick_estrella',{})),
+                    ('res_mas_seguro', '🛡️ Pick Anti-Sorpresas', data.get('pick_mas_seguro',{}))
                 ]:
                     estado = t[key_res]
                     color = "#00E676" if estado == "acertado" else "#FF3B5C" if estado == "fallido" else "#8A97B5"
@@ -319,12 +333,11 @@ with tab2:
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # Controles de resultado
                     c1, c2, c3 = st.columns(3)
                     if c1.button("✅", key=f"ac_{t['id']}_{key_res}"): actualizar_resultado_db(t['id'], key_res, 'acertado'); st.rerun()
                     if c2.button("❌", key=f"fa_{t['id']}_{key_res}"): actualizar_resultado_db(t['id'], key_res, 'fallido'); st.rerun()
                     if c3.button("⏳", key=f"pe_{t['id']}_{key_res}"): actualizar_resultado_db(t['id'], key_res, 'pendiente'); st.rerun()
                 
                 st.markdown("<hr>", unsafe_allow_html=True)
-                if st.button("🗑️ Eliminar Base de Datos", key=f"del_{t['id']}"):
+                if st.button("🗑️ Eliminar Registro", key=f"del_{t['id']}"):
                     eliminar_ticket_db(t['id']); st.rerun()
