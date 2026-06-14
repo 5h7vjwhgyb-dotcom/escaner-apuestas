@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import requests
 from google import genai
@@ -274,13 +273,17 @@ Responde ÚNICAMENTE con este JSON estructurado (sin texto extra):
             model="gemini-3.1-flash-lite", contents=prompt,
             config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.1, response_mime_type="application/json")
         )
+        
         raw_text = resp.text.strip()
-        if raw_text.startswith("
-
-
-```
-```json")
+        
+        # Limpiamos las etiquetas markdown si Gemini las incluye en la respuesta
+        if raw_text.startswith("```json"):
+            raw_text = raw_text.replace("```json", "").replace("```", "").strip()
+        elif raw_text.startswith("```"):
+            raw_text = raw_text.replace("```", "").strip()
+            
         return json.loads(raw_text)
+        
     except Exception as e: return {"error": str(e)}
 
 def fmt_fecha(iso):
@@ -452,5 +455,3 @@ with tab2:
                 if st.button("🗑️ Eliminar Registro", key=f"del_{t['id']}"):
                     eliminar_ticket_db(t['id']); st.rerun()
 
-
-```
