@@ -1,4 +1,4 @@
-
+```python
 import streamlit as st
 import requests
 from google import genai
@@ -45,11 +45,11 @@ st.markdown("""
   .ticket-slip::before { content:''; position:absolute; top:0; left:0; width:5px; height:100%; }
   
   /* Colores por estrategia */
-  .slip-base::before { background:#00C2FF; } /* Pick Base */
-  .slip-anti::before { background:#8B5CF6; } /* Anti-Sorpresas */
-  .slip-segura::before { background:#00E676; } /* Combinada Segura */
-  .slip-moderada::before { background:#FFB700; } /* Combinada Moderada */
-  .slip-arriesgada::before { background:#FF3B5C; } /* Combinada Arriesgada */
+  .slip-base::before { background:#00C2FF; } 
+  .slip-anti::before { background:#8B5CF6; } 
+  .slip-segura::before { background:#00E676; } 
+  .slip-moderada::before { background:#FFB700; } 
+  .slip-arriesgada::before { background:#FF3B5C; } 
   
   .slip-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,.04); padding-bottom:10px; }
   .slip-title { font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:#fff; }
@@ -77,11 +77,6 @@ st.markdown("""
   .hist-meta { font-size:12px; color:#fff; font-weight:800; margin-bottom:2px; }
   .hist-bet-txt { font-size:11px; color:#8A97B5; }
   .badge-status { font-size:10px; font-weight:800; text-transform:uppercase; padding:3px 8px; border-radius:4px; letter-spacing:0.5px; }
-  
-  /* Mini botones manuales en historial */
-  .mini-btn-group { display:flex; gap:4px; margin-top:8px; justify-content:flex-end; }
-  .mini-btn { padding:4px 8px; font-size:10px; font-weight:700; border-radius:4px; border:1px solid rgba(255,255,255,.1); background:#0E1A2C; color:#8A97B5; cursor:pointer; }
-  .mini-btn:hover { background:rgba(255,255,255,.05); }
 </style>
 
 <div class="hdr">
@@ -116,7 +111,6 @@ def auto_verificar_jornada():
         
         if not pendientes: return
             
-        # Obtener scores recientes
         url_scores = f"https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/scores/?apiKey={api_odds}&daysFrom=3"
         r = requests.get(url_scores, timeout=10)
         if r.status_code != 200: return
@@ -124,7 +118,6 @@ def auto_verificar_jornada():
         marcadores = r.json()
         partidos_terminados = {}
         
-        # Mapear partidos terminados
         for m in marcadores:
             if m.get("completed", False):
                 home, away = m.get("home_team"), m.get("away_team")
@@ -144,18 +137,17 @@ def auto_verificar_jornada():
             columnas = [
                 ('res_estrella', data_analisis.get('pick_estrella', {})),
                 ('res_mas_seguro', data_analisis.get('pick_mas_seguro', {})),
-                ('res_segura', data_analisis.get('estrategias', [{},{},{}])[0]),
-                ('res_moderada', data_analisis.get('estrategias', [{},{},{}])[1]),
-                ('res_arriesgada', data_analisis.get('estrategias', [{},{},{}])[2])
+                ('res_segura', data_analisis.get('estrategias', [{},{},{}])[0] if len(data_analisis.get('estrategias', [])) > 0 else {}),
+                ('res_moderada', data_analisis.get('estrategias', [{},{},{}])[1] if len(data_analisis.get('estrategias', [])) > 1 else {}),
+                ('res_arriesgada', data_analisis.get('estrategias', [{},{},{}])[2] if len(data_analisis.get('estrategias', [])) > 2 else {})
             ]
             
             for col, obj_apuesta in columnas:
-                if ticket[col] != "pendiente" or not obj_apuesta: continue
+                if ticket.get(col) != "pendiente" or not obj_apuesta: continue
                 
                 apuesta_txt = obj_apuesta.get("seleccion", "") or " | ".join(obj_apuesta.get("picks", []))
                 partidos_del_ticket = [p for p in partidos_terminados.keys() if p in ticket["partidos"] or p in apuesta_txt]
                 
-                # Si hay partidos del ticket que ya terminaron, evaluamos
                 if partidos_del_ticket:
                     marcas_str = "\n".join([partidos_terminados[p] for p in partidos_del_ticket])
                     prompt = f"""
@@ -167,7 +159,7 @@ def auto_verificar_jornada():
                     {apuesta_txt}
                     
                     Si todos los picks de la apuesta se cumplieron, responde solo "acertado".
-                    Si al menos un pick falló o los resultados no alcanzan, responde solo "fallido".
+                    Si al menos un pick falló, responde solo "fallido".
                     Si faltan resultados para saberlo con certeza, responde solo "pendiente".
                     """
                     try:
@@ -219,18 +211,19 @@ def obtener_partidos_mundial(api_key):
 @st.cache_data(ttl=86400, show_spinner=False)
 def ejecutar_algoritmo_quant(api_key, partidos_seleccionados):
     prompt = f"""
-Eres un Analista Experto en Apuestas Deportivas. Tu único objetivo es GANAR DINERO construyendo boletos con la máxima probabilidad de acierto para el Mundial.
+Eres un Analista Experto en Apuestas Deportivas. Tu único objetivo es GANAR DINERO construyendo boletos con la máxima probabilidad de acierto para el Mundial de la FIFA.
 
 REGLA DE ORO 1 (FILOSOFÍA):
-Busca opciones de altísima probabilidad con cuotas bajas (@1.20 a @1.40). El éxito es sumar aciertos, no buscar cuotas locas.
+Busca opciones de altísima probabilidad con cuotas bajas (@1.20 a @1.40). El éxito es sumar aciertos construyendo tickets muy seguros.
 
 REGLA DE ORO 2 (ANTI-CORRELACIÓN - ¡ESTRICTO!):
-NUNCA, bajo NINGUNA circunstancia, mezcles "Ganador Directo" y "Hándicap" del MISMO partido en una combinada. Betano prohíbe esto. O usas ganador, o usas hándicap, pero jamás ambos para un mismo evento en el mismo ticket.
+NUNCA mezcles "Ganador Directo" y "Hándicap" del MISMO partido en una combinada. Betano prohíbe esto. O usas ganador, o usas hándicap.
 
-MERCADOS PERMITIDOS: Ganador (1X2), Doble Oportunidad, Goles (Over/Under), Hándicap (respetando Regla 2).
+MERCADOS PERMITIDOS: 
+Ganador (1X2), Doble Oportunidad, Goles (Over/Under 0.5 a 5.5), Córners, Tarjetas, Hándicap (respetando Regla 2).
 
 ESTRUCTURA DE RETORNO OBLIGATORIA (Usar Betano o Promedio):
-- SEGURA: 1 a 2 picks. Cuotas individuales muy bajas.
+- SEGURA: 1 a 2 picks. Cuotas individuales muy bajas (@1.20 - @1.40).
 - MODERADA: 3 a 4 picks. Cuota total final entre @1.50 y @3.50.
 - ARRIESGADA: 3 a 5 picks. Cuota total final entre @3.50 y @7.00.
 
@@ -241,14 +234,14 @@ Responde ÚNICAMENTE con este JSON estructurado (sin texto extra):
 {{
   "game_script": "Análisis rápido de las oportunidades más seguras.",
   "pick_estrella": {{
-    "partido": "Equipo A vs B",
+    "partido": "Equipo A vs Equipo B",
     "categoria_permitida": "Total de Goles",
     "seleccion": "Over 1.5",
     "cuota_betano": 1.25,
     "razon_cuantitativa": "Razón de su altísima probabilidad."
   }},
   "pick_mas_seguro": {{
-    "partido": "Equipo C vs D",
+    "partido": "Equipo C vs Equipo D",
     "categoria_permitida": "Doble Oportunidad",
     "seleccion": "1X",
     "cuota_betano": 1.18,
@@ -259,19 +252,19 @@ Responde ÚNICAMENTE con este JSON estructurado (sin texto extra):
       "tipo": "segura",
       "cuota_total": 1.35,
       "descripcion": "Combinada para proteger capital.",
-      "picks": ["Equipo A vs B: Over 1.5 (@1.25)", "Equipo C vs D: 1X (@1.08)"]
+      "picks": ["Equipo A vs Equipo B: Over 1.5 (@1.25)", "Equipo C vs Equipo D: 1X (@1.08)"]
     }},
     {{
       "tipo": "moderada",
       "cuota_total": 2.20,
       "descripcion": "Multiplicador óptimo sin riesgo excesivo.",
-      "picks": ["Pick 1 (@1.25)", "Pick 2 (@1.30)", "Pick 3 (@1.35)"]
+      "picks": ["Equipo A vs Equipo B: Pick 1 (@1.25)", "Equipo C vs Equipo D: Pick 2 (@1.30)", "Equipo E vs Equipo F: Pick 3 (@1.35)"]
     }},
     {{
       "tipo": "arriesgada",
       "cuota_total": 4.50,
       "descripcion": "Boleto extendido para maximizar ganancias.",
-      "picks": ["Pick 1 (@1.30)", "Pick 2 (@1.40)", "Pick 3 (@1.35)", "Pick 4 (@1.25)"]
+      "picks": ["Equipo A vs B: Pick 1 (@1.30)", "Equipo C vs D: Pick 2 (@1.40)", "Equipo E vs F: Pick 3 (@1.35)", "Equipo G vs H: Pick 4 (@1.25)"]
     }}
   ]
 }}"""
@@ -282,7 +275,11 @@ Responde ÚNICAMENTE con este JSON estructurado (sin texto extra):
             config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.1, response_mime_type="application/json")
         )
         raw_text = resp.text.strip()
-        if raw_text.startswith("```json")
+        if raw_text.startswith("
+
+
+```
+```json")
         return json.loads(raw_text)
     except Exception as e: return {"error": str(e)}
 
