@@ -1,7 +1,4 @@
 streamlit
 requests
 google-genai
-
-
-
-
+supabase
