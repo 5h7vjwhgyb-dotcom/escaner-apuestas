@@ -43,7 +43,7 @@ PAISES_ES = {
     "Canada":"Canadá","Costa Rica":"Costa Rica","Panama":"Panamá",
     "Honduras":"Honduras","Jamaica":"Jamaica","New Zealand":"Nueva Zelanda",
     "Curaçao":"Curazao","Cape Verde":"Cabo Verde","Algeria":"Argelia",
-    "Algeria":"Argelia","Kenya":"Kenia","Zimbabwe":"Zimbabue",
+    "Kenya":"Kenia","Zimbabwe":"Zimbabue",
     "Draw":"Empate",
 }
 FLAGS = {
@@ -392,15 +392,22 @@ def ejecutar_algoritmo_quant(api_key, partidos_seleccionados):
     prompt = f"""
 Eres un Analista Experto en Apuestas Deportivas. Tu único objetivo es GANAR DINERO construyendo boletos con la máxima probabilidad de acierto para el Mundial de la FIFA.
 
-REGLA 1 (FILOSOFÍA): Busca opciones de altísima probabilidad con cuotas bajas (@1.20 a @1.40).
+REGLAS ESTRICTAS Y OBLIGATORIAS (SI ROMPES UNA, EL BOLETO ES INVÁLIDO):
 
-REGLA 2 (ANTI-CORRELACIÓN ¡ESTRICTO!): NUNCA mezcles "Ganador Directo" y "Hándicap" del MISMO partido. O usas ganador, o usas hándicap.
+REGLA 1 (CERO INVENCIÓN DE DATOS - CRÍTICO): ESTÁ ESTRICTAMENTE PROHIBIDO inventar cuotas, líneas de hándicap, o mercados. TODOS los picks y sus cuotas DEBEN extraerse EXACTAMENTE del JSON proporcionado en "PARTIDOS EN CRUDO". Si una cuota o línea no está en el JSON, NO LO USES.
 
-REGLA 3 (RESTRICCIÓN DE LÍNEAS OVER/UNDER): NO PUEDES colocar más de un "Over" ni más de un "Under" para el mismo mercado y tipo de pick en el mismo boleto. (Ejemplo PROHIBIDO: Over 1.5 goles + Over 2.5 goles). SÍ puedes combinar un Over y un Under complementarios (Ej: Over 0.5 goles + Under 3.5 goles) o mezclar mercados distintos (Ej: Over 1.5 goles + Over 4.5 córners + Over 1.5 tarjetas).
+REGLA 2 (EXCLUSIÓN MUTUA VS COMBINACIÓN MULTIPARTIDO - CRÍTICO): 
+- PARA UN MISMO PARTIDO: NUNCA mezcles Ganador Directo (1X2), Doble Oportunidad ni Hándicap. Debes elegir solo uno de estos para ese partido específico.
+- PARA PARTIDOS DIFERENTES EN UNA COMBINADA: ¡SÍ ESTÁ PERMITIDO Y RECOMENDADO! Puedes usar el "Ganador" del Partido A, combinarlo con el "Hándicap" del Partido B, y sumar la "Doble Oportunidad" del Partido C sin ningún problema.
 
-REGLA 4 (FORMATO DE HÁNDICAP BETANO): Los hándicaps DEBEN SER exclusivamente en incrementos de 0.5 (ej. +0.5, -1.5, +2.5). ESTÁN ESTRICTAMENTE PROHIBIDOS los hándicaps asiáticos de cuartos (ej. 0.25, 0.75, 1.25, 1.75).
+REGLA 3 (RESTRICCIÓN DE LÍNEAS OVER/UNDER): NO PUEDES colocar más de un "Over" ni más de un "Under" para el mismo partido y mercado (Ejemplo PROHIBIDO: Over 1.5 goles + Over 2.5 goles en el mismo juego). SÍ puedes combinar un Over y un Under complementarios (Ej: Over 0.5 goles + Under 3.5 goles).
 
-MERCADOS PERMITIDOS: Ganador (1X2), Doble Oportunidad, Goles (Over/Under 0.5-5.5), Córners, Tarjetas, Hándicap (solo incrementos de .5).
+REGLA 4 (FORMATO DE HÁNDICAP BETANO): Los hándicaps ("spreads") DEBEN SER exclusivamente en incrementos enteros o medios (ej. 0.0, +0.5, -1.0, -1.5). ESTÁN ESTRICTAMENTE PROHIBIDOS los hándicaps de cuartos asiáticos (ej. 0.25, 0.75).
+
+MERCADOS EN EL JSON: 
+- "h2h": Ganador y Doble Oportunidad.
+- "totals": Goles (Over/Under).
+- "spreads": Hándicap.
 
 ESTRUCTURA OBLIGATORIA:
 - SEGURA: 1-2 picks. Cuotas @1.20-@1.40.
@@ -426,7 +433,7 @@ Responde ÚNICAMENTE con este JSON estructurado (sin texto extra, sin bloques ma
         resp = client.models.generate_content(
             model="gemini-3.1-flash-lite", contents=prompt,
             config=types.GenerateContentConfig(
-                max_output_tokens=4096, temperature=0.1, response_mime_type="application/json"
+                max_output_tokens=4096, temperature=0.0, response_mime_type="application/json"
             )
         )
         raw = resp.text.strip().replace("```json", "").replace("```", "").strip()
@@ -480,8 +487,6 @@ with tab1:
                 home = p["home_team"]
                 away = p["away_team"]
                 hora = fmt_hora(p["commence_time"])
-
-
 
                 # ── Barras de probabilidad (HTML inline, sin sangría) ──
                 # compact() colapsa todo a una línea → evita el bug del parser Markdown
