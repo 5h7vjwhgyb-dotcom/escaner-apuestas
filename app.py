@@ -413,7 +413,7 @@ Responde ÚNICAMENTE con este JSON estructurado (sin texto extra, sin bloques ma
     try:
         client = genai.Client(api_key=api_key)
         resp = client.models.generate_content(
-            model="gemini-2.0-flash-lite", contents=prompt,
+            model="gemini-3.1-flash-lite", contents=prompt,
             config=types.GenerateContentConfig(
                 max_output_tokens=4096, temperature=0.1, response_mime_type="application/json"
             )
