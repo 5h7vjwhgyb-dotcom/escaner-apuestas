@@ -1,25 +1,35 @@
+"""
+app.py — BET⚡COMBINADAS
+Dashboard principal del sistema de predicción de apuestas deportivas.
+Integra: Football-Data.org + Odds API + Dixon-Coles + Gemini IA
+"""
+
 import streamlit as st
 import requests
 import re
+import json
+from datetime import datetime, timezone, timedelta, date
+from collections import defaultdict
 from google import genai
 from google.genai import types
-from datetime import datetime, timezone, timedelta
-import json
-from supabase import create_client, Client
-from collections import defaultdict
 
-def compact(html_str):
-    """Colapsa HTML multi-línea a una sola línea.
-    Evita que el parser de Markdown de Streamlit interprete líneas
-    con sangría como bloques de código (≥4 espacios = <pre><code>)."""
-    return re.sub(r'\n\s*', '', str(html_str))
+# Módulos del sistema
+import bd
+import datos as datos_mod
+import modelo as modelo_mod
+import gemini as gemini_mod
 
-# ─── Zona Horaria Chile ─────────────────────────────────────────
+# ─── Zona Horaria Chile ────────────────────────────────────────
 try:
     from zoneinfo import ZoneInfo
     TZ_CHILE = ZoneInfo("America/Santiago")
 except ImportError:
     TZ_CHILE = timezone(timedelta(hours=-4))
+
+# ─── HTML Helper ───────────────────────────────────────────────
+def compact(s):
+    """Colapsa HTML multi-línea a una línea. Evita code blocks de Markdown."""
+    return re.sub(r'\n\s*', '', str(s))
 
 # ═══════════════════════════════════════════════════════════════
 # TRADUCCIONES Y BANDERAS
@@ -43,7 +53,6 @@ PAISES_ES = {
     "Canada":"Canadá","Costa Rica":"Costa Rica","Panama":"Panamá",
     "Honduras":"Honduras","Jamaica":"Jamaica","New Zealand":"Nueva Zelanda",
     "Curaçao":"Curazao","Cape Verde":"Cabo Verde","Algeria":"Argelia",
-    "Kenya":"Kenia","Zimbabwe":"Zimbabue",
     "Draw":"Empate",
 }
 FLAGS = {
@@ -61,691 +70,677 @@ FLAGS = {
     "Ukraine":"🇺🇦","Austria":"🇦🇹","Wales":"🏴󠁧󠁢󠁷󠁬󠁳󠁿","Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿",
     "Canada":"🇨🇦","Costa Rica":"🇨🇷","Panama":"🇵🇦","Honduras":"🇭🇳",
     "Jamaica":"🇯🇲","New Zealand":"🇳🇿","Curaçao":"🇨🇼","Cape Verde":"🇨🇻",
-    "Algeria":"🇩🇿","Kenya":"🇰🇪","Zimbabwe":"🇿🇼",
+    "Algeria":"🇩🇿",
 }
-DIAS_ES = {
-    "Monday":"Lunes","Tuesday":"Martes","Wednesday":"Miércoles",
-    "Thursday":"Jueves","Friday":"Viernes","Saturday":"Sábado","Sunday":"Domingo",
-}
-MESES_ES = {
-    "Jan":"Ene","Feb":"Feb","Mar":"Mar","Apr":"Abr","May":"May","Jun":"Jun",
-    "Jul":"Jul","Aug":"Ago","Sep":"Sep","Oct":"Oct","Nov":"Nov","Dec":"Dic",
-}
+DIAS_ES  = {"Monday":"Lunes","Tuesday":"Martes","Wednesday":"Miércoles",
+            "Thursday":"Jueves","Friday":"Viernes","Saturday":"Sábado","Sunday":"Domingo"}
+MESES_ES = {"Jan":"Ene","Feb":"Feb","Mar":"Mar","Apr":"Abr","May":"May","Jun":"Jun",
+            "Jul":"Jul","Aug":"Ago","Sep":"Sep","Oct":"Oct","Nov":"Nov","Dec":"Dic"}
 
-def tr(n):
-    return PAISES_ES.get(n, n)
-
-def fl(n):
-    return FLAGS.get(n, "🌍")
-
-def tr_pick(texto):
-    """Traduce nombres de países en textos de picks (más largos primero para evitar colisiones)."""
+def tr(n):  return PAISES_ES.get(n, n)
+def fl(n):  return FLAGS.get(n, "🌍")
+def tr_pick(t):
     for en, es in sorted(PAISES_ES.items(), key=lambda x: -len(x[0])):
-        texto = texto.replace(en, es)
-    return texto
-
-def extraer_h2h(partido):
-    """Extrae cuotas H2H y calcula probabilidades implícitas normalizadas."""
-    home, away = partido.get("home_team", ""), partido.get("away_team", "")
-    for bm in partido.get("bookmakers", []):
-        for mkt in bm.get("markets", []):
-            if mkt.get("key") == "h2h":
-                cuotas = {o["name"]: o["price"] for o in mkt.get("outcomes", [])}
-                ho = cuotas.get(home, 0)
-                do = cuotas.get("Draw", 0)
-                ao = cuotas.get(away, 0)
-                if ho and ao:
-                    ph = 1 / ho
-                    pd = 1 / do if do else 0
-                    pa = 1 / ao
-                    t  = ph + pd + pa
-                    return {
-                        "home": round(ph / t * 100),
-                        "draw": round(pd / t * 100) if do else 0,
-                        "away": round(pa / t * 100),
-                        "home_odd": ho,
-                        "draw_odd": do,
-                        "away_odd": ao,
-                    }
-    return None
-
+        t = t.replace(en, es)
+    return t
 def fmt_grupo(iso):
     try:
-        dt  = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(TZ_CHILE)
-        dia = DIAS_ES.get(dt.strftime("%A"), dt.strftime("%A"))
-        mes = MESES_ES.get(dt.strftime("%b"), dt.strftime("%b"))
-        return f"{dia} {dt.day} {mes}"
-    except:
-        return "Próximamente"
-
+        dt = datetime.fromisoformat(iso.replace("Z","+00:00")).astimezone(TZ_CHILE)
+        return f"{DIAS_ES.get(dt.strftime('%A'),dt.strftime('%A'))} {dt.day} {MESES_ES.get(dt.strftime('%b'),dt.strftime('%b'))}"
+    except: return "Próximamente"
 def fmt_hora(iso):
-    try:
-        return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(TZ_CHILE).strftime("%H:%M")
-    except:
-        return "N/D"
-
+    try: return datetime.fromisoformat(iso.replace("Z","+00:00")).astimezone(TZ_CHILE).strftime("%H:%M")
+    except: return "N/D"
 def fmt_fecha(iso):
-    try:
-        return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(TZ_CHILE).strftime("%d %b · %H:%M")
-    except:
-        return "Fecha N/D"
+    try: return datetime.fromisoformat(iso.replace("Z","+00:00")).astimezone(TZ_CHILE).strftime("%d %b · %H:%M")
+    except: return "Fecha N/D"
+
+# ─── Competiciones ─────────────────────────────────────────────
+COMPETICIONES = {
+    "🏆 Copa del Mundo 2026": ("FIFA World Cup", "2026", "soccer_fifa_world_cup"),
+    "⚽ Premier League":      ("Premier League", "2025", "soccer_epl"),
+    "🇪🇸 La Liga":           ("La Liga",        "2025", "soccer_spain_la_liga"),
+    "🇮🇹 Serie A":           ("Serie A",        "2025", "soccer_italy_serie_a"),
+    "🇩🇪 Bundesliga":        ("Bundesliga",     "2025", "soccer_germany_bundesliga"),
+    "🇫🇷 Ligue 1":           ("Ligue 1",        "2025", "soccer_france_ligue_one"),
+}
 
 # ═══════════════════════════════════════════════════════════════
 # CONFIGURACIÓN Y ESTILOS
 # ═══════════════════════════════════════════════════════════════
 st.set_page_config(page_title="BET⚡COMBINADAS", layout="centered", initial_sidebar_state="collapsed")
-
 st.markdown("""
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
-
-  /* ── Base ── */
-  [data-testid="stAppViewContainer"]{background:#07101E!important;color:#EEF4FF!important;font-family:'Inter',sans-serif!important;}
-  [data-testid="stHeader"]{background:transparent!important;}
-  .block-container{padding-top:1rem!important;max-width:680px!important;}
-
-  /* ── Header ── */
-  .hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;background:linear-gradient(135deg,#0D1B2E,#0E2040);border:1px solid rgba(0,194,255,.12);border-radius:16px;margin-bottom:22px;box-shadow:0 4px 30px rgba(0,0,0,.4);}
-  .logo{font-size:22px;font-weight:900;letter-spacing:-1px;color:#fff;}
-  .logo-bolt{color:#00C2FF;text-shadow:0 0 20px rgba(0,194,255,.6);}
-  .badge{background:rgba(255,107,0,.15);border:1px solid rgba(255,107,0,.35);padding:5px 13px;border-radius:20px;font-size:10px;font-weight:800;color:#FF6B00;text-transform:uppercase;letter-spacing:.5px;}
-
-  /* ── Tabs ── */
-  [data-testid="stTabs"] [data-baseweb="tab-list"]{background:#0A1525!important;border-radius:10px!important;padding:4px!important;gap:4px!important;}
-  [data-testid="stTabs"] button{border-radius:8px!important;font-weight:700!important;font-size:13px!important;color:#8A97B5!important;transition:all .2s!important;}
-  [data-testid="stTabs"] button[aria-selected="true"]{background:#0E1A2C!important;color:#00C2FF!important;box-shadow:0 2px 8px rgba(0,0,0,.3)!important;}
-
-  /* ── Botones Streamlit ── */
-  .stButton>button{background:linear-gradient(135deg,#00C2FF,#0080CC)!important;border:none!important;border-radius:10px!important;color:#fff!important;font-weight:800!important;font-size:14px!important;width:100%!important;padding:.85em!important;transition:all .2s!important;letter-spacing:.3px!important;box-shadow:0 4px 15px rgba(0,194,255,.2)!important;}
-  .stButton>button:hover{opacity:.92!important;transform:translateY(-1px)!important;box-shadow:0 6px 22px rgba(0,194,255,.35)!important;}
-  .btn-save>button{background:linear-gradient(135deg,#8B5CF6,#6D28D9)!important;box-shadow:0 4px 15px rgba(139,92,246,.25)!important;}
-  .btn-save>button:hover{box-shadow:0 6px 22px rgba(139,92,246,.4)!important;}
-
-  /* ── Separador de Fecha ── */
-  .date-sep{display:flex;align-items:center;gap:10px;margin:28px 0 14px;}
-  .date-badge{background:rgba(0,194,255,.08);border:1px solid rgba(0,194,255,.2);color:#00C2FF;font-size:10px;font-weight:800;padding:5px 14px;border-radius:20px;text-transform:uppercase;letter-spacing:.8px;white-space:nowrap;}
-  .date-cnt{background:rgba(255,255,255,.06);color:#8A97B5;font-size:10px;font-weight:700;padding:4px 10px;border-radius:10px;white-space:nowrap;}
-  .date-line{flex:1;height:1px;background:linear-gradient(90deg,rgba(0,194,255,.15),transparent);}
-
-  /* ── Match Card ── */
-  .mcard{
-    background:linear-gradient(145deg,#0D1B2E,#0B1725);
-    border:1px solid rgba(255,255,255,.08);
-    border-bottom:none;
-    border-radius:16px 16px 0 0;
-    padding:18px 20px 16px;
-    margin-bottom:0;
-    box-shadow:0 2px 16px rgba(0,0,0,.25);
-    position:relative;
-    overflow:hidden;
-  }
-  .mcard::after{
-    content:'';position:absolute;top:0;right:0;
-    width:120px;height:120px;
-    background:radial-gradient(circle,rgba(0,194,255,.04),transparent 70%);
-    pointer-events:none;
-  }
-
-  /* ── Equipos ── */
-  .teams-row{display:grid;grid-template-columns:1fr 88px 1fr;align-items:center;gap:8px;margin-bottom:16px;}
-  .team-blk{display:flex;flex-direction:column;align-items:center;gap:5px;}
-  .t-flag{font-size:38px;line-height:1;filter:drop-shadow(0 3px 6px rgba(0,0,0,.4));}
-  .t-name{font-size:12px;font-weight:800;color:#EEF4FF;text-align:center;line-height:1.2;max-width:110px;}
-  .t-cuota{font-size:10px;color:#8B5CF6;font-weight:700;background:rgba(139,92,246,.1);padding:2px 7px;border-radius:6px;}
-
-  /* ── Centro del partido ── */
-  .center-blk{display:flex;flex-direction:column;align-items:center;gap:3px;}
-  .mc-time{font-size:22px;font-weight:900;color:#00C2FF;letter-spacing:-1.5px;line-height:1;text-shadow:0 0 20px rgba(0,194,255,.4);}
-  .mc-vs{font-size:9px;font-weight:800;color:#2A3C52;letter-spacing:2.5px;text-transform:uppercase;}
-  .mc-draw{font-size:10px;color:#8A97B5;font-weight:700;background:rgba(255,255,255,.05);padding:2px 7px;border-radius:6px;}
-
-  /* ── Barras de Probabilidad ── */
-  .prob-wrap{margin-top:4px;}
-  .prob-labels{display:flex;justify-content:space-between;font-size:9px;color:#8A97B5;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px;}
-  .prob-bar{display:flex;height:7px;border-radius:4px;overflow:hidden;gap:2px;}
-  .pb-h{background:linear-gradient(90deg,#00C2FF,#0099D9);border-radius:4px 0 0 4px;}
-  .pb-d{background:#7C4DFF;}
-  .pb-a{background:linear-gradient(90deg,#FF6B6B,#FF3B5C);border-radius:0 4px 4px 0;}
-  .prob-pcts{display:flex;justify-content:space-between;font-size:11px;font-weight:800;margin-top:6px;}
-  .pct-h{color:#00C2FF;}
-  .pct-d{color:#9B71FF;}
-  .pct-a{color:#FF6B6B;}
-
-  /* ── Footer de la Card (Checkbox) ── */
-  .mcard-footer{
-    background:#091420;
-    border:1px solid rgba(255,255,255,.08);
-    border-top:1px dashed rgba(0,194,255,.1);
-    border-radius:0 0 16px 16px;
-    padding:6px 20px;
-    margin-bottom:16px;
-  }
-  .mcard-footer [data-testid="stCheckbox"]{
-    background:transparent!important;
-    border:none!important;
-    padding:4px 0!important;
-    margin:0!important;
-  }
-  .mcard-footer label p{
-    font-size:11px!important;
-    font-weight:700!important;
-    color:#8A97B5!important;
-    text-transform:uppercase!important;
-    letter-spacing:.6px!important;
-  }
-  .mcard-footer [data-testid="stCheckbox"] input:checked + div{
-    background:#00C2FF!important;
-    border-color:#00C2FF!important;
-  }
-
-  /* ── Boletos / Tickets ── */
-  .tslip{background:linear-gradient(145deg,#101C2E,#0D1828);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:18px 20px;margin-bottom:16px;position:relative;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.25);}
-  .tslip::before{content:'';position:absolute;top:0;left:0;width:5px;height:100%;}
-  .slip-base::before{background:linear-gradient(180deg,#00C2FF,#0080CC);}
-  .slip-anti::before{background:linear-gradient(180deg,#8B5CF6,#6D28D9);}
-  .slip-segura::before{background:linear-gradient(180deg,#00E676,#00A854);}
-  .slip-moderada::before{background:linear-gradient(180deg,#FFB700,#E6A000);}
-  .slip-arriesgada::before{background:linear-gradient(180deg,#FF3B5C,#CC1F3D);}
-  .slip-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,.05);padding-bottom:11px;}
-  .slip-tit{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#EEF4FF;}
-  .slip-q{background:rgba(255,107,0,.15);color:#FF6B00;padding:4px 11px;border-radius:7px;font-weight:800;font-size:14px;border:1px solid rgba(255,107,0,.3);}
-  .i-match{font-size:10px;font-weight:700;color:#8A97B5;margin-top:9px;text-transform:uppercase;letter-spacing:.5px;}
-  .i-bet{font-size:15px;color:#EEF4FF;font-weight:800;padding-left:22px;margin-bottom:6px;position:relative;}
-  .i-bet::before{content:'🎯';position:absolute;left:0;top:2px;font-size:12px;}
-  .slip-desc{font-size:11px;color:#8A97B5;line-height:1.6;margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.07);}
-
-  /* ── Dashboard Estadísticas ── */
-  .dash-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:22px;}
-  .d-card{background:linear-gradient(145deg,#0D1B2E,#0B1725);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:16px;text-align:center;}
-  .d-val{font-size:26px;font-weight:900;color:#fff;margin-bottom:4px;letter-spacing:-1px;}
-  .d-lbl{font-size:10px;font-weight:700;color:#8A97B5;text-transform:uppercase;letter-spacing:.5px;}
-
-  /* ── Historial ── */
-  .hist-row{display:flex;justify-content:space-between;align-items:center;background:#0E1A2C;padding:12px 14px;border-radius:9px;margin-bottom:8px;border-left:3px solid #4A5568;}
-  .h-meta{font-size:12px;color:#EEF4FF;font-weight:800;margin-bottom:2px;}
-  .h-txt{font-size:11px;color:#8A97B5;}
-  .h-badge{font-size:10px;font-weight:800;text-transform:uppercase;padding:3px 9px;border-radius:5px;letter-spacing:.5px;}
-
-  /* ── Spinner ── */
-  .stSpinner>div{border-top-color:#00C2FF!important;}
-
-  /* ── Success/Warning/Error ── */
-  [data-testid="stAlert"]{border-radius:10px!important;}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+[data-testid="stAppViewContainer"]{background:#07101E!important;color:#EEF4FF!important;font-family:'Inter',sans-serif!important;}
+[data-testid="stHeader"]{background:transparent!important;}
+.block-container{padding-top:1rem!important;max-width:680px!important;}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;background:linear-gradient(135deg,#0D1B2E,#0E2040);border:1px solid rgba(0,194,255,.12);border-radius:16px;margin-bottom:22px;box-shadow:0 4px 30px rgba(0,0,0,.4);}
+.logo{font-size:22px;font-weight:900;letter-spacing:-1px;color:#fff;}
+.logo-bolt{color:#00C2FF;text-shadow:0 0 20px rgba(0,194,255,.6);}
+.badge{background:rgba(255,107,0,.15);border:1px solid rgba(255,107,0,.35);padding:5px 13px;border-radius:20px;font-size:10px;font-weight:800;color:#FF6B00;text-transform:uppercase;letter-spacing:.5px;}
+[data-testid="stTabs"] [data-baseweb="tab-list"]{background:#0A1525!important;border-radius:10px!important;padding:4px!important;gap:4px!important;}
+[data-testid="stTabs"] button{border-radius:8px!important;font-weight:700!important;font-size:12px!important;color:#8A97B5!important;}
+[data-testid="stTabs"] button[aria-selected="true"]{background:#0E1A2C!important;color:#00C2FF!important;box-shadow:0 2px 8px rgba(0,0,0,.3)!important;}
+.stButton>button{background:linear-gradient(135deg,#00C2FF,#0080CC)!important;border:none!important;border-radius:10px!important;color:#fff!important;font-weight:800!important;font-size:14px!important;width:100%!important;padding:.85em!important;transition:all .2s!important;box-shadow:0 4px 15px rgba(0,194,255,.2)!important;}
+.stButton>button:hover{opacity:.92!important;transform:translateY(-1px)!important;}
+.btn-save>button{background:linear-gradient(135deg,#8B5CF6,#6D28D9)!important;}
+.btn-danger>button{background:linear-gradient(135deg,#FF3B5C,#CC1F3D)!important;}
+.date-sep{display:flex;align-items:center;gap:10px;margin:28px 0 14px;}
+.date-badge{background:rgba(0,194,255,.08);border:1px solid rgba(0,194,255,.2);color:#00C2FF;font-size:10px;font-weight:800;padding:5px 14px;border-radius:20px;text-transform:uppercase;letter-spacing:.8px;white-space:nowrap;}
+.date-cnt{background:rgba(255,255,255,.06);color:#8A97B5;font-size:10px;font-weight:700;padding:4px 10px;border-radius:10px;}
+.date-line{flex:1;height:1px;background:linear-gradient(90deg,rgba(0,194,255,.15),transparent);}
+.mcard{background:linear-gradient(145deg,#0D1B2E,#0B1725);border:1px solid rgba(255,255,255,.08);border-bottom:none;border-radius:16px 16px 0 0;padding:18px 20px 16px;margin-bottom:0;box-shadow:0 2px 16px rgba(0,0,0,.25);}
+.teams-row{display:grid;grid-template-columns:1fr 88px 1fr;align-items:center;gap:8px;margin-bottom:16px;}
+.team-blk{display:flex;flex-direction:column;align-items:center;gap:5px;}
+.t-flag{font-size:38px;line-height:1;}
+.t-name{font-size:12px;font-weight:800;color:#EEF4FF;text-align:center;line-height:1.2;}
+.t-cuota{font-size:10px;color:#8B5CF6;font-weight:700;background:rgba(139,92,246,.1);padding:2px 7px;border-radius:6px;}
+.center-blk{display:flex;flex-direction:column;align-items:center;gap:3px;}
+.mc-time{font-size:22px;font-weight:900;color:#00C2FF;letter-spacing:-1.5px;text-shadow:0 0 20px rgba(0,194,255,.4);}
+.mc-vs{font-size:9px;font-weight:800;color:#2A3C52;letter-spacing:2.5px;text-transform:uppercase;}
+.mc-draw{font-size:10px;color:#8A97B5;font-weight:700;background:rgba(255,255,255,.05);padding:2px 7px;border-radius:6px;}
+.prob-wrap{margin-top:4px;}
+.prob-labels{display:flex;justify-content:space-between;font-size:9px;color:#8A97B5;font-weight:700;margin-bottom:6px;text-transform:uppercase;}
+.prob-bar{display:flex;height:7px;border-radius:4px;overflow:hidden;gap:2px;}
+.pb-h{background:linear-gradient(90deg,#00C2FF,#0099D9);border-radius:4px 0 0 4px;}
+.pb-d{background:#7C4DFF;}
+.pb-a{background:linear-gradient(90deg,#FF6B6B,#FF3B5C);border-radius:0 4px 4px 0;}
+.prob-pcts{display:flex;justify-content:space-between;font-size:11px;font-weight:800;margin-top:6px;}
+.pct-h{color:#00C2FF;}.pct-d{color:#9B71FF;}.pct-a{color:#FF6B6B;}
+.mcard-footer{background:#091420;border:1px solid rgba(255,255,255,.08);border-top:1px dashed rgba(0,194,255,.1);border-radius:0 0 16px 16px;padding:6px 20px;margin-bottom:16px;}
+.mcard-footer [data-testid="stCheckbox"]{background:transparent!important;border:none!important;padding:4px 0!important;margin:0!important;}
+.mcard-footer label p{font-size:11px!important;font-weight:700!important;color:#8A97B5!important;text-transform:uppercase!important;letter-spacing:.6px!important;}
+.tslip{background:linear-gradient(145deg,#101C2E,#0D1828);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:18px 20px;margin-bottom:16px;position:relative;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.25);}
+.tslip::before{content:'';position:absolute;top:0;left:0;width:5px;height:100%;}
+.slip-base::before{background:linear-gradient(180deg,#00C2FF,#0080CC);}
+.slip-anti::before{background:linear-gradient(180deg,#8B5CF6,#6D28D9);}
+.slip-segura::before{background:linear-gradient(180deg,#00E676,#00A854);}
+.slip-moderada::before{background:linear-gradient(180deg,#FFB700,#E6A000);}
+.slip-arriesgada::before{background:linear-gradient(180deg,#FF3B5C,#CC1F3D);}
+.slip-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,.05);padding-bottom:11px;}
+.slip-tit{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#EEF4FF;}
+.slip-q{background:rgba(255,107,0,.15);color:#FF6B00;padding:4px 11px;border-radius:7px;font-weight:800;font-size:14px;border:1px solid rgba(255,107,0,.3);}
+.i-match{font-size:10px;font-weight:700;color:#8A97B5;margin-top:9px;text-transform:uppercase;letter-spacing:.5px;}
+.i-bet{font-size:15px;color:#EEF4FF;font-weight:800;padding-left:22px;margin-bottom:6px;position:relative;}
+.i-bet::before{content:'🎯';position:absolute;left:0;top:2px;font-size:12px;}
+.slip-desc{font-size:11px;color:#8A97B5;line-height:1.6;margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.07);}
+.pred-card{background:linear-gradient(145deg,#0D1B2E,#0B1725);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px 18px;margin-bottom:12px;box-shadow:0 2px 16px rgba(0,0,0,.2);}
+.pred-teams{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.pred-team{font-size:13px;font-weight:800;color:#EEF4FF;}
+.pred-time{font-size:11px;color:#00C2FF;font-weight:700;}
+.ev-badge{display:inline-block;background:rgba(0,230,118,.15);border:1px solid rgba(0,230,118,.3);color:#00E676;font-size:10px;font-weight:800;padding:3px 8px;border-radius:6px;margin:2px;}
+.ev-badge-mod{background:rgba(255,183,0,.15);border-color:rgba(255,183,0,.3);color:#FFB700;}
+.dash-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px;}
+.d-card{background:linear-gradient(145deg,#0D1B2E,#0B1725);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:16px;text-align:center;}
+.d-val{font-size:26px;font-weight:900;color:#fff;margin-bottom:4px;letter-spacing:-1px;}
+.d-lbl{font-size:10px;font-weight:700;color:#8A97B5;text-transform:uppercase;letter-spacing:.5px;}
+.hist-row{display:flex;justify-content:space-between;align-items:center;background:#0E1A2C;padding:12px 14px;border-radius:9px;margin-bottom:8px;border-left:3px solid #4A5568;}
+.h-meta{font-size:12px;color:#EEF4FF;font-weight:800;margin-bottom:2px;}
+.h-txt{font-size:11px;color:#8A97B5;}
+.h-badge{font-size:10px;font-weight:800;text-transform:uppercase;padding:3px 9px;border-radius:5px;letter-spacing:.5px;}
+.sys-card{background:#0E1A2C;border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:16px 18px;margin-bottom:12px;}
+.sys-title{font-size:12px;font-weight:800;color:#8A97B5;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;}
 </style>
-
 <div class="hdr">
   <div class="logo">BET<span class="logo-bolt">⚡</span>COMBINADAS</div>
-  <div class="badge">🎯 MUNDIAL & BETANO</div>
+  <div class="badge">🎯 MUNDIAL & LIGAS · IA CUÁNTICA</div>
 </div>
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════
-# CONEXIONES (Supabase y APIs)
+# CREDENCIALES
 # ═══════════════════════════════════════════════════════════════
-api_gemini = st.secrets.get("GEMINI_API", "") or st.session_state.get("_gem", "")
-api_odds   = st.secrets.get("ODDS_API", "")   or st.session_state.get("_odd", "")
-supa_url   = st.secrets.get("SUPABASE_URL", "") or st.session_state.get("_supa_url", "")
-supa_key   = st.secrets.get("SUPABASE_KEY", "") or st.session_state.get("_supa_key", "")
+api_gemini   = st.secrets.get("GEMINI_API", "")
+api_odds     = st.secrets.get("ODDS_API", "")
+supa_url     = st.secrets.get("SUPABASE_URL", "")
+supa_key     = st.secrets.get("SUPABASE_KEY", "")
+api_football = st.secrets.get("FOOTBALL_API", "")
 
-if not (api_gemini and api_odds and supa_url and supa_key):
-    st.warning("⚠️ Configura las credenciales en Streamlit Secrets para iniciar.")
+if not all([api_gemini, api_odds, supa_url, supa_key, api_football]):
+    st.warning("⚠️ Faltan credenciales en Streamlit Secrets. Verifica: GEMINI_API, ODDS_API, SUPABASE_URL, SUPABASE_KEY, FOOTBALL_API.")
     st.stop()
 
-supabase: Client = create_client(supa_url, supa_key)
+# ═══════════════════════════════════════════════════════════════
+# FUNCIONES COMPARTIDAS
+# ═══════════════════════════════════════════════════════════════
+def extraer_h2h(partido):
+    home, away = partido.get("home_team",""), partido.get("away_team","")
+    for bm in partido.get("bookmakers",[]):
+        for mkt in bm.get("markets",[]):
+            if mkt.get("key")=="h2h":
+                cuotas = {o["name"]:o["price"] for o in mkt.get("outcomes",[])}
+                ho,do,ao = cuotas.get(home,0),cuotas.get("Draw",0),cuotas.get(away,0)
+                if ho and ao:
+                    ph,pd,pa = 1/ho,(1/do if do else 0),1/ao
+                    t = ph+pd+pa
+                    return {"home":round(ph/t*100),"draw":round(pd/t*100) if do else 0,
+                            "away":round(pa/t*100),"home_odd":ho,"draw_odd":do,"away_odd":ao}
+    return None
 
-# ═══════════════════════════════════════════════════════════════
-# BASE DE DATOS Y VERIFICADOR AUTÓNOMO
-# ═══════════════════════════════════════════════════════════════
-def auto_verificar_jornada():
-    """Motor que lee marcadores finales y evalúa tickets pendientes."""
+def extraer_cuotas_odds(partido_odds):
+    """Extrae h2h + totals de un partido de Odds API para +EV."""
+    cuotas = {}
+    home = partido_odds.get("home_team","")
+    away = partido_odds.get("away_team","")
+    for bm in partido_odds.get("bookmakers",[]):
+        for mkt in bm.get("markets",[]):
+            key      = mkt.get("key","")
+            outcomes = mkt.get("outcomes",[])
+            if key == "h2h":
+                for o in outcomes:
+                    if o["name"] == home:      cuotas["home"] = o["price"]
+                    elif o["name"] == "Draw":  cuotas["draw"] = o["price"]
+                    elif o["name"] == away:    cuotas["away"] = o["price"]
+            elif key == "totals":
+                for o in outcomes:
+                    pt = str(o.get("point",""))
+                    if "Over"  in o["name"] and pt == "2.5": cuotas["over25"]  = o["price"]
+                    if "Under" in o["name"] and pt == "2.5": cuotas["under25"] = o["price"]
+                    if "Over"  in o["name"] and pt == "1.5": cuotas["over15"]  = o["price"]
+                    if "Under" in o["name"] and pt == "1.5": cuotas["under15"] = o["price"]
+        break  # Solo primer bookmaker
+    return cuotas
+
+def emparejar_partido(home_fd, away_fd, lista_odds):
+    """Cruza nombre de equipo Football-Data ↔ Odds API (coincidencia parcial)."""
+    def limpiar(n): return re.sub(r'\bfc\b|\bsc\b|\bac\b', '', n.lower()).strip()
+    h_clean = limpiar(home_fd)
+    a_clean = limpiar(away_fd)
+    for p in lista_odds:
+        h_o = limpiar(p.get("home_team",""))
+        a_o = limpiar(p.get("away_team",""))
+        if (h_clean[:5] in h_o or h_o[:5] in h_clean) and \
+           (a_clean[:5] in a_o or a_o[:5] in a_clean):
+            return extraer_cuotas_odds(p)
+    return {}
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def obtener_odds_competicion(sport_key):
+    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
     try:
-        pendientes = supabase.table("historial").select("*").or_(
-            "res_estrella.eq.pendiente,res_mas_seguro.eq.pendiente,res_segura.eq.pendiente,res_moderada.eq.pendiente,res_arriesgada.eq.pendiente"
-        ).execute().data
-        if not pendientes: return
-
-        url_scores = f"https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/scores/?apiKey={api_odds}&daysFrom=3"
-        r = requests.get(url_scores, timeout=10)
-        if r.status_code != 200: return
-
-        marcadores = r.json()
-        partidos_terminados = {}
-        for m in marcadores:
-            if m.get("completed", False):
-                home, away = m.get("home_team"), m.get("away_team")
-                scores = m.get("scores", [])
-                if len(scores) == 2:
-                    s1, s2 = int(scores[0]["score"]), int(scores[1]["score"])
-                    partidos_terminados[f"{home} vs {away}"] = f"FINAL: {home} {s1} - {s2} {away}"
-
-        if not partidos_terminados: return
-
-        client = genai.Client(api_key=api_gemini)
-        for ticket in pendientes:
-            data_a = json.loads(ticket["analisis_json"])
-            updates = {}
-            estrategias = data_a.get("estrategias", [])
-            columnas = [
-                ("res_estrella",   data_a.get("pick_estrella", {})),
-                ("res_mas_seguro", data_a.get("pick_mas_seguro", {})),
-                ("res_segura",     estrategias[0] if len(estrategias) > 0 else {}),
-                ("res_moderada",   estrategias[1] if len(estrategias) > 1 else {}),
-                ("res_arriesgada", estrategias[2] if len(estrategias) > 2 else {}),
-            ]
-            for col, obj in columnas:
-                if ticket.get(col) != "pendiente" or not obj: continue
-                apuesta_txt = obj.get("seleccion", "") or " | ".join(obj.get("picks", []))
-                partidos_del_ticket = [p for p in partidos_terminados if p in ticket["partidos"] or p in apuesta_txt]
-                if partidos_del_ticket:
-                    marcas_str = "\n".join([partidos_terminados[p] for p in partidos_del_ticket])
-                    prompt = f"""
-Evalúa si esta apuesta se GANÓ o PERDIÓ según los marcadores finales.
-MARCADORES: {marcas_str}
-APUESTA: {apuesta_txt}
-Si todos los picks se cumplieron → responde solo "acertado".
-Si al menos un pick falló → responde solo "fallido".
-Si faltan resultados → responde solo "pendiente"."""
-                    try:
-                        res = client.models.generate_content(
-                            model="gemini-3.1-flash-lite", contents=prompt,
-                            config=types.GenerateContentConfig(temperature=0.0)
-                        ).text.strip().lower()
-                        if "acertado" in res:   updates[col] = "acertado"
-                        elif "fallido" in res:  updates[col] = "fallido"
-                    except: pass
-            if updates:
-                supabase.table("historial").update(updates).eq("id", ticket["id"]).execute()
-    except: pass
-
-def guardar_ticket_db(liga, partidos_str, analisis_json):
-    fecha = datetime.now(TZ_CHILE).strftime("%Y-%m-%d %H:%M")
-    data = {
-        "fecha_gen": fecha, "liga": liga,
-        "partidos": partidos_str,
-        "analisis_json": json.dumps(analisis_json, ensure_ascii=False),
-    }
-    try: supabase.table("historial").insert(data).execute(); return True
-    except: return False
-
-def cargar_historial_db():
-    try: return supabase.table("historial").select("*").order("id", desc=True).limit(30).execute().data
+        r = requests.get(url, params={"apiKey":api_odds,"regions":"eu,uk","markets":"h2h,totals"}, timeout=10)
+        r.raise_for_status()
+        return r.json()
     except: return []
 
-def actualizar_resultado_manual(tid, campo, valor):
-    supabase.table("historial").update({campo: valor}).eq("id", tid).execute()
-
-def eliminar_ticket_db(tid):
-    supabase.table("historial").delete().eq("id", tid).execute()
-
-# ═══════════════════════════════════════════════════════════════
-# INTELIGENCIA QUANT
-# ═══════════════════════════════════════════════════════════════
+# ─── Tab 1: funciones específicas del generador de boletos ─────
 @st.cache_data(ttl=3600, show_spinner=False)
-def obtener_partidos_mundial(api_key):
-    url = f"https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/?apiKey={api_key}&regions=eu,uk,us&markets=h2h,totals,spreads"
+def obtener_partidos_mundial():
+    url = f"https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/"
     try:
-        r = requests.get(url, timeout=10); r.raise_for_status(); return r.json()
+        r = requests.get(url, params={"apiKey":api_odds,"regions":"eu,uk,us","markets":"h2h,totals,spreads"}, timeout=10)
+        r.raise_for_status(); return r.json()
     except Exception as e: return {"error": str(e)}
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def ejecutar_algoritmo_quant(api_key, partidos_seleccionados):
+def ejecutar_algoritmo_quant(partidos_seleccionados):
     prompt = f"""
-Eres un Analista Experto en Apuestas Deportivas. Tu único objetivo es GANAR DINERO construyendo boletos con la máxima probabilidad de acierto para el Mundial de la FIFA.
-
-REGLAS ESTRICTAS Y OBLIGATORIAS (SI ROMPES UNA, EL BOLETO ES INVÁLIDO):
-
-REGLA 1 (CERO INVENCIÓN DE DATOS - CRÍTICO): ESTÁ ESTRICTAMENTE PROHIBIDO inventar cuotas, líneas de hándicap, o mercados. TODOS los picks y sus cuotas DEBEN extraerse EXACTAMENTE del JSON proporcionado en "PARTIDOS EN CRUDO". Si una cuota o línea no está en el JSON, NO LO USES.
-
-REGLA 2 (EXCLUSIÓN MUTUA VS COMBINACIÓN MULTIPARTIDO - CRÍTICO): 
-- PARA UN MISMO PARTIDO: NUNCA mezcles Ganador Directo (1X2), Doble Oportunidad ni Hándicap. Debes elegir solo uno de estos para ese partido específico.
-- PARA PARTIDOS DIFERENTES EN UNA COMBINADA: ¡SÍ ESTÁ PERMITIDO Y RECOMENDADO! Puedes usar el "Ganador" del Partido A, combinarlo con el "Hándicap" del Partido B, y sumar la "Doble Oportunidad" del Partido C sin ningún problema.
-
-REGLA 3 (RESTRICCIÓN DE LÍNEAS OVER/UNDER): NO PUEDES colocar más de un "Over" ni más de un "Under" para el mismo partido y mercado (Ejemplo PROHIBIDO: Over 1.5 goles + Over 2.5 goles en el mismo juego). SÍ puedes combinar un Over y un Under complementarios (Ej: Over 0.5 goles + Under 3.5 goles).
-
-REGLA 4 (FORMATO DE HÁNDICAP BETANO): Los hándicaps ("spreads") DEBEN SER exclusivamente en incrementos enteros o medios (ej. 0.0, +0.5, -1.0, -1.5). ESTÁN ESTRICTAMENTE PROHIBIDOS los hándicaps de cuartos asiáticos (ej. 0.25, 0.75).
-
-MERCADOS EN EL JSON: 
-- "h2h": Ganador y Doble Oportunidad.
-- "totals": Goles (Over/Under).
-- "spreads": Hándicap.
-
-ESTRUCTURA OBLIGATORIA:
-- SEGURA: 1-2 picks. Cuotas @1.20-@1.40.
-- MODERADA: 3-4 picks. Cuota total @1.50-@3.50.
-- ARRIESGADA: 3-5 picks. Cuota total @3.50-@7.00.
-
-PARTIDOS EN CRUDO:
-{json.dumps(partidos_seleccionados, ensure_ascii=False, indent=2)}
-
-Responde ÚNICAMENTE con este JSON estructurado (sin texto extra, sin bloques markdown):
-{{
-  "game_script": "Análisis breve de las mejores oportunidades.",
-  "pick_estrella": {{"partido":"Eq A vs Eq B","categoria_permitida":"Total Goles","seleccion":"Over 1.5","cuota_betano":1.25,"razon_cuantitativa":"Razón concisa."}},
-  "pick_mas_seguro": {{"partido":"Eq C vs Eq D","categoria_permitida":"Doble Oportunidad","seleccion":"1X","cuota_betano":1.18,"razon_cuantitativa":"Justificación."}},
-  "estrategias": [
-    {{"tipo":"segura","cuota_total":1.35,"descripcion":"Proteger capital.","picks":["Eq A vs Eq B: Over 1.5 (@1.25)"]}},
-    {{"tipo":"moderada","cuota_total":2.20,"descripcion":"Multiplicador óptimo.","picks":["Pick1 (@1.25)","Pick2 (@1.30)","Pick3 (@1.35)"]}},
-    {{"tipo":"arriesgada","cuota_total":4.50,"descripcion":"Maximizar ganancias.","picks":["Pick1 (@1.30)","Pick2 (@1.40)","Pick3 (@1.35)","Pick4 (@1.25)"]}}
-  ]
-}}"""
+Eres un Analista Experto en Apuestas Deportivas para el Mundial FIFA 2026.
+REGLA 1: Busca opciones de altísima probabilidad con cuotas @1.20-@1.40.
+REGLA 2 (ANTI-CORRELACIÓN): NUNCA mezcles "Ganador Directo" y "Hándicap" del mismo partido.
+MERCADOS: Ganador (1X2), Doble Oportunidad, Goles (Over/Under 0.5-5.5), Córners, Tarjetas, Hándicap.
+ESTRUCTURA: SEGURA 1-2 picks @1.20-@1.40 | MODERADA 3-4 picks @1.50-@3.50 | ARRIESGADA 3-5 picks @3.50-@7.00
+PARTIDOS: {json.dumps(partidos_seleccionados, ensure_ascii=False)}
+Responde SOLO con JSON (sin markdown):
+{{"game_script":"análisis","pick_estrella":{{"partido":"","categoria_permitida":"","seleccion":"","cuota_betano":1.25,"razon_cuantitativa":""}},"pick_mas_seguro":{{"partido":"","categoria_permitida":"","seleccion":"","cuota_betano":1.18,"razon_cuantitativa":""}},"estrategias":[{{"tipo":"segura","cuota_total":1.35,"descripcion":"","picks":[]}},{{"tipo":"moderada","cuota_total":2.20,"descripcion":"","picks":[]}},{{"tipo":"arriesgada","cuota_total":4.50,"descripcion":"","picks":[]}}]}}"""
     try:
-        client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(
-            model="gemini-3.1-flash-lite", contents=prompt,
-            config=types.GenerateContentConfig(
-                max_output_tokens=4096, temperature=0.0, response_mime_type="application/json"
-            )
+        client = genai.Client(api_key=api_gemini)
+        resp   = client.models.generate_content(
+            model="gemini-2.0-flash-lite", contents=prompt,
+            config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.1, response_mime_type="application/json")
         )
-        raw = resp.text.strip().replace("```json", "").replace("```", "").strip()
-        return json.loads(raw)
+        return json.loads(resp.text.strip().replace("```json","").replace("```","").strip())
     except Exception as e: return {"error": str(e)}
+
+def auto_verificar_jornada():
+    try:
+        pendientes = bd.get_client().table("historial").select("*").or_(
+            "res_estrella.eq.pendiente,res_mas_seguro.eq.pendiente,res_segura.eq.pendiente,res_moderada.eq.pendiente,res_arriesgada.eq.pendiente"
+        ).execute().data
+        if not pendientes: return
+        r = requests.get(f"https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/scores/?apiKey={api_odds}&daysFrom=3", timeout=10)
+        if r.status_code != 200: return
+        terminados = {}
+        for m in r.json():
+            if m.get("completed"):
+                home,away = m.get("home_team"),m.get("away_team")
+                sc = m.get("scores",[])
+                if len(sc)==2: terminados[f"{home} vs {away}"] = f"{home} {sc[0]['score']} - {sc[1]['score']} {away}"
+        if not terminados: return
+        picks_pend = bd.get_valores_pendientes("FIFA World Cup")
+        resultados = gemini_mod.verificar_picks_pendientes(picks_pend) if picks_pend else []
+        for r2 in resultados:
+            if r2.get("pick_resultado") in ("acertado","fallido"):
+                bd.actualizar_resultado_valor(r2["id"], r2["pick_resultado"])
+    except: pass
 
 # ═══════════════════════════════════════════════════════════════
 # TABS
 # ═══════════════════════════════════════════════════════════════
-tab1, tab2 = st.tabs(["⚡ Armador de Boletos", "📊 Base & Stats"])
+tab1, tab2, tab3, tab4 = st.tabs(["⚡ Boletos IA", "🔮 Predicciones", "📊 Estadísticas", "⚙️ Sistema"])
 
 # ───────────────────────────────────────────────────────────────
-# TAB 1 — ARMADOR DE BOLETOS
+# TAB 1 — BOLETOS IA (generador con Gemini + Odds API)
 # ───────────────────────────────────────────────────────────────
 with tab1:
-    st.markdown(
-        "<p style='color:#8A97B5;font-size:12px;font-weight:700;text-transform:uppercase;"
-        "letter-spacing:.6px;margin-bottom:18px;'>🌍 Mercado: Copa del Mundo 2026 · "
-        "Selecciona los partidos a analizar</p>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<p style='color:#8A97B5;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:18px;'>🌍 Copa del Mundo 2026 · Selecciona partidos a analizar</p>", unsafe_allow_html=True)
 
     with st.spinner("Sincronizando cuotas globales..."):
-        datos_api = obtener_partidos_mundial(api_odds)
+        datos_api = obtener_partidos_mundial()
 
     if isinstance(datos_api, dict) and "error" in datos_api:
         st.error(f"❌ Error en la API de cuotas: {datos_api['error']}")
     elif not datos_api:
-        st.info("⏳ No hay partidos disponibles en este momento. Inténtalo más tarde.")
+        st.info("⏳ No hay partidos disponibles en este momento.")
     else:
-        # ── Agrupar por fecha (hora local Chile) ─────────────
         grupos = defaultdict(list)
         for p in datos_api[:16]:
             grupos[fmt_grupo(p["commence_time"])].append(p)
 
         partidos_activos = []
-
         for fecha_label, partidos_dia in grupos.items():
             n = len(partidos_dia)
             st.markdown(
                 '<div class="date-sep">'
                 f'<div class="date-badge">📅 {fecha_label}</div>'
                 '<div class="date-line"></div>'
-                f'<div class="date-cnt">{n} partido{"s" if n > 1 else ""}</div>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
+                f'<div class="date-cnt">{n} partido{"s" if n>1 else ""}</div>'
+                '</div>', unsafe_allow_html=True)
 
             for p in partidos_dia:
                 h2h  = extraer_h2h(p)
-                home = p["home_team"]
-                away = p["away_team"]
+                home, away = p["home_team"], p["away_team"]
                 hora = fmt_hora(p["commence_time"])
-
-                # ── Barras de probabilidad (HTML inline, sin sangría) ──
-                # compact() colapsa todo a una línea → evita el bug del parser Markdown
                 if h2h:
-                    pw, dw, aw = h2h["home"], h2h["draw"], h2h["away"]
-                    ho, do_, ao = h2h["home_odd"], h2h["draw_odd"], h2h["away_odd"]
+                    pw,dw,aw = h2h["home"],h2h["draw"],h2h["away"]
+                    ho,do_,ao = h2h["home_odd"],h2h["draw_odd"],h2h["away_odd"]
                     prob_html = (
                         '<div class="prob-wrap">'
                         '<div class="prob-labels">'
                         f'<span>{tr(home)}</span><span>Empate</span><span>{tr(away)}</span>'
-                        '</div>'
-                        '<div class="prob-bar">'
+                        '</div><div class="prob-bar">'
                         f'<div class="pb-h" style="width:{pw}%"></div>'
                         f'<div class="pb-d" style="width:{dw}%"></div>'
                         f'<div class="pb-a" style="width:{aw}%"></div>'
-                        '</div>'
-                        '<div class="prob-pcts">'
+                        '</div><div class="prob-pcts">'
                         f'<span class="pct-h">{pw}%</span>'
                         f'<span class="pct-d">{dw}%</span>'
                         f'<span class="pct-a">{aw}%</span>'
-                        '</div>'
-                        '</div>'
+                        '</div></div>'
                     )
-                    c_home = f"@{ho:.2f}"
-                    c_draw = f"@{do_:.2f}" if do_ else ""
-                    c_away = f"@{ao:.2f}"
+                    c_home,c_draw,c_away = f"@{ho:.2f}",(f"@{do_:.2f}" if do_ else ""),f"@{ao:.2f}"
                 else:
                     prob_html = ""
                     c_home = c_draw = c_away = ""
 
-                # ── Tarjeta del partido (todo en una sola línea) ─────────────
-                t_home = (
-                    '<div class="team-blk">'
-                    f'<div class="t-flag">{fl(home)}</div>'
-                    f'<div class="t-name">{tr(home)}</div>'
-                    + (f'<div class="t-cuota">{c_home}</div>' if c_home else '')
-                    + '</div>'
-                )
-                t_center = (
-                    '<div class="center-blk">'
-                    f'<div class="mc-time">{hora}</div>'
-                    '<div class="mc-vs">VS</div>'
-                    + (f'<div class="mc-draw">{c_draw}</div>' if c_draw else '')
-                    + '</div>'
-                )
-                t_away = (
-                    '<div class="team-blk">'
-                    f'<div class="t-flag">{fl(away)}</div>'
-                    f'<div class="t-name">{tr(away)}</div>'
-                    + (f'<div class="t-cuota">{c_away}</div>' if c_away else '')
-                    + '</div>'
-                )
+                t_h = ('<div class="team-blk">'
+                       f'<div class="t-flag">{fl(home)}</div>'
+                       f'<div class="t-name">{tr(home)}</div>'
+                       + (f'<div class="t-cuota">{c_home}</div>' if c_home else '')
+                       + '</div>')
+                t_c = ('<div class="center-blk">'
+                       f'<div class="mc-time">{hora}</div>'
+                       '<div class="mc-vs">VS</div>'
+                       + (f'<div class="mc-draw">{c_draw}</div>' if c_draw else '')
+                       + '</div>')
+                t_a = ('<div class="team-blk">'
+                       f'<div class="t-flag">{fl(away)}</div>'
+                       f'<div class="t-name">{tr(away)}</div>'
+                       + (f'<div class="t-cuota">{c_away}</div>' if c_away else '')
+                       + '</div>')
                 st.markdown(
-                    '<div class="mcard">'
-                    '<div class="teams-row">' + t_home + t_center + t_away + '</div>'
-                    + prob_html + '</div>',
-                    unsafe_allow_html=True,
-                )
-
-                # ── Footer de selección (con clase wrapper) ─
+                    '<div class="mcard"><div class="teams-row">'
+                    + t_h + t_c + t_a
+                    + '</div>' + prob_html + '</div>',
+                    unsafe_allow_html=True)
                 st.markdown('<div class="mcard-footer">', unsafe_allow_html=True)
-                sel = st.checkbox(
-                    f"📌 Añadir al análisis — {tr(home)} vs {tr(away)}",
-                    key=p["id"],
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
-
-                if sel:
+                if st.checkbox(f"📌 Añadir al análisis — {tr(home)} vs {tr(away)}", key=p["id"]):
                     partidos_activos.append(p)
+                st.markdown('</div>', unsafe_allow_html=True)
 
-        # ── Botón de construcción de boletos ─────────────────
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
         n_sel = len(partidos_activos)
-        btn_txt = (
-            f"🚀 Construir Boletos · {n_sel} partido{'s' if n_sel != 1 else ''} seleccionado{'s' if n_sel != 1 else ''}"
-            if n_sel else "🚀 Construir Boletos"
-        )
-        if st.button(btn_txt):
+        if st.button(f"🚀 Construir Boletos · {n_sel} partido{'s' if n_sel!=1 else ''} seleccionado{'s' if n_sel!=1 else ''}"):
             if not partidos_activos:
-                st.warning("⚠️ Selecciona al menos un partido para continuar.")
+                st.warning("⚠️ Selecciona al menos un partido.")
             else:
                 with st.spinner("🤖 Calculando combinaciones de alta probabilidad..."):
-                    res = ejecutar_algoritmo_quant(api_gemini, partidos_activos)
+                    res = ejecutar_algoritmo_quant(partidos_activos)
                 if "error" in res:
-                    st.error(f"❌ Fallo en el motor de IA: {res['error']}")
+                    st.error(f"❌ Error IA: {res['error']}")
                 else:
-                    st.session_state.ultimo_analisis = res
-                    st.session_state.partidos_analizados = " | ".join(
-                        [f"{p['home_team']} vs {p['away_team']}" for p in partidos_activos]
-                    )
-                    st.session_state.ticket_guardado = False
+                    st.session_state.ultimo_analisis   = res
+                    st.session_state.partidos_analizados = " | ".join([f"{p['home_team']} vs {p['away_team']}" for p in partidos_activos])
+                    st.session_state.ticket_guardado   = False
 
-        # ── Mostrar boletos generados ─────────────────────────
         if "ultimo_analisis" in st.session_state:
             data = st.session_state.ultimo_analisis
-
-            st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-            st.markdown(
-                "<p style='color:#EEF4FF;font-weight:800;font-size:13px;"
-                "text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;'>🎟️ Boletos Generados</p>",
-                unsafe_allow_html=True,
-            )
+            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+            st.markdown("<p style='color:#EEF4FF;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;'>🎟️ Boletos Generados</p>", unsafe_allow_html=True)
             if data.get("game_script"):
-                st.markdown(
-                    f"<p style='font-size:12px;color:#8A97B5;margin-bottom:18px;"
-                    f"font-style:italic;line-height:1.6;'>💡 {tr_pick(data['game_script'])}</p>",
-                    unsafe_allow_html=True,
-                )
+                st.markdown(f"<p style='font-size:12px;color:#8A97B5;margin-bottom:18px;font-style:italic;'>💡 {tr_pick(data['game_script'])}</p>", unsafe_allow_html=True)
 
             def render_slip(clase, titulo, cuota, picks_html, desc):
                 st.markdown(
                     f'<div class="tslip {clase}">'
-                    f'<div class="slip-hdr">'
-                    f'<span class="slip-tit">{titulo}</span>'
-                    f'<span class="slip-q">@{cuota}</span>'
-                    f'</div>'
-                    + picks_html +
-                    f'<div class="slip-desc"><b>Veredicto:</b> {tr_pick(desc)}</div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+                    f'<div class="slip-hdr"><span class="slip-tit">{titulo}</span><span class="slip-q">@{cuota}</span></div>'
+                    + picks_html
+                    + f'<div class="slip-desc"><b>Veredicto:</b> {tr_pick(desc)}</div></div>',
+                    unsafe_allow_html=True)
 
-            # Pick Estrella
-            pe = data.get("pick_estrella", {})
-            render_slip(
-                "slip-base", "⭐ Pick Base (Single)", pe.get("cuota_betano", "-"),
-                f'<div class="i-match">{tr_pick(pe.get("partido", ""))}</div>'
-                f'<div class="i-bet">{tr_pick(pe.get("seleccion", ""))}</div>',
-                pe.get("razon_cuantitativa", ""),
-            )
+            pe = data.get("pick_estrella",{})
+            render_slip("slip-base","⭐ Pick Base (Single)",pe.get("cuota_betano","-"),
+                f'<div class="i-match">{tr_pick(pe.get("partido",""))}</div><div class="i-bet">{tr_pick(pe.get("seleccion",""))}</div>',
+                pe.get("razon_cuantitativa",""))
+            ps = data.get("pick_mas_seguro",{})
+            render_slip("slip-anti","🛡️ Pick Anti-Sorpresas",ps.get("cuota_betano","-"),
+                f'<div class="i-match">{tr_pick(ps.get("partido",""))}</div><div class="i-bet">{tr_pick(ps.get("seleccion",""))}</div>',
+                ps.get("razon_cuantitativa",""))
+            estrat_map = {"segura":("slip-segura","🟢 COMBINADA SEGURA"),"moderada":("slip-moderada","🟡 COMBINADA MODERADA"),"arriesgada":("slip-arriesgada","🔴 COMBINADA ARRIESGADA")}
+            for e in data.get("estrategias",[]):
+                clase,tit = estrat_map.get(e.get("tipo","segura"),("slip-segura","Combinada"))
+                ph = ""
+                for pick in e.get("picks",[]):
+                    p_str,b_str = (pick.split(":",1) if ":" in pick else ("Partido",pick))
+                    ph += f'<div class="i-match">{tr_pick(p_str.strip())}</div><div class="i-bet">{tr_pick(b_str.strip())}</div>'
+                render_slip(clase,tit,e.get("cuota_total","-"),ph,e.get("descripcion",""))
 
-            # Pick Anti-Sorpresas
-            ps = data.get("pick_mas_seguro", {})
-            render_slip(
-                "slip-anti", "🛡️ Pick Anti-Sorpresas", ps.get("cuota_betano", "-"),
-                f'<div class="i-match">{tr_pick(ps.get("partido", ""))}</div>'
-                f'<div class="i-bet">{tr_pick(ps.get("seleccion", ""))}</div>',
-                ps.get("razon_cuantitativa", ""),
-            )
-
-            # Estrategias
-            estrat_map = {
-                "segura":     ("slip-segura",     "🟢 COMBINADA SEGURA"),
-                "moderada":   ("slip-moderada",   "🟡 COMBINADA MODERADA"),
-                "arriesgada": ("slip-arriesgada", "🔴 COMBINADA ARRIESGADA"),
-            }
-            for e in data.get("estrategias", []):
-                clase, tit = estrat_map.get(e.get("tipo", "segura"), ("slip-segura", "Combinada"))
-                picks_html = ""
-                for pick in e.get("picks", []):
-                    if ":" in pick:
-                        p_str, b_str = pick.split(":", 1)
-                    else:
-                        p_str, b_str = "Partido", pick
-                    picks_html += (
-                        f'<div class="i-match">{tr_pick(p_str.strip())}</div>'
-                        f'<div class="i-bet">{tr_pick(b_str.strip())}</div>'
-                    )
-                render_slip(clase, tit, e.get("cuota_total", "-"), picks_html, e.get("descripcion", ""))
-
-            # Botón guardar
-            if not st.session_state.get("ticket_guardado", False):
+            if not st.session_state.get("ticket_guardado",False):
                 st.markdown('<div class="btn-save">', unsafe_allow_html=True)
                 if st.button("💾 Guardar Boletos en Base de Datos"):
-                    if guardar_ticket_db("Mundial 2026", st.session_state.partidos_analizados, data):
-                        st.session_state.ticket_guardado = True
-                        st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
+                    if bd.guardar_ticket_db("FIFA World Cup", st.session_state.partidos_analizados, json.dumps(data, ensure_ascii=False)):
+                        st.session_state.ticket_guardado = True; st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
             else:
-                st.success("✅ Boletos guardados permanentemente en la Base de Datos.")
+                st.success("✅ Boletos guardados en la Base de Datos.")
 
 # ───────────────────────────────────────────────────────────────
-# TAB 2 — BASE & STATS
+# TAB 2 — PREDICCIONES (Dixon-Coles + Odds API + +EV)
 # ───────────────────────────────────────────────────────────────
 with tab2:
-    with st.spinner("🤖 Evaluando resultados en vivo..."):
-        auto_verificar_jornada()
-        historial = cargar_historial_db()
+    comp_sel = st.selectbox("Competición", list(COMPETICIONES.keys()), key="comp_pred")
+    comp_nombre, comp_season, comp_odds_key = COMPETICIONES[comp_sel]
 
-    # ── Dashboard de estadísticas ─────────────────────────────
-    acertados = fallidos = 0
-    if historial:
-        for t in historial:
-            for col in ["res_estrella", "res_mas_seguro", "res_segura", "res_moderada", "res_arriesgada"]:
-                v = t.get(col)
-                if v == "acertado":  acertados += 1
-                elif v == "fallido": fallidos  += 1
+    estado = modelo_mod.estado_modelo(comp_nombre, comp_season)
 
-    total    = acertados + fallidos
-    hit      = int(acertados / total * 100) if total > 0 else 0
-    color_hr = "#00E676" if hit >= 50 else "#FFB700" if hit >= 30 else "#FF3B5C"
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Partidos en BD",    estado["partidos_en_bd"])
+    c2.metric("Finalizados",       estado["partidos_finalizados"])
+    c3.metric("Equipos calibrados",estado["n_equipos"])
+
+    if not estado["listo"]:
+        st.warning(f"⚠️ Se necesitan al menos 5 partidos finalizados para entrenar el modelo. Actualmente hay {estado['partidos_finalizados']}. Ve a ⚙️ Sistema para sincronizar datos.")
+    else:
+        if estado["modelo_entrenado"]:
+            ventaja = estado['home_advantage']
+            st.success(f"✅ Modelo Dixon-Coles entrenado · {estado['n_partidos_usados']} partidos · Ventaja local: +{ventaja:.3f}")
+
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+        col_btn1, col_btn2 = st.columns(2)
+        generar = col_btn1.button("🔮 Generar Predicciones")
+        ver_ranking = col_btn2.button("🏅 Ver Ranking de Equipos")
+
+        if ver_ranking:
+            ranking = modelo_mod.ranking_equipos(comp_nombre, comp_season)
+            if ranking:
+                st.markdown("**🏅 Ranking según el modelo**")
+                for i, eq in enumerate(ranking[:10], 1):
+                    col_r1, col_r2, col_r3, col_r4 = st.columns([1,3,1,1])
+                    col_r1.markdown(f"**#{i}**")
+                    col_r2.markdown(f"**{tr(eq['equipo'])}**")
+                    col_r3.metric("Ataque", eq["ataque"])
+                    col_r4.metric("Rating", eq["rating"])
+            else:
+                st.info("Sin datos suficientes para el ranking.")
+
+        if generar:
+            with st.spinner("🔮 Generando predicciones Dixon-Coles..."):
+                odds_lista = obtener_odds_competicion(comp_odds_key)
+                proximos   = datos_mod.get_proximos_para_predecir(comp_nombre)
+                params     = modelo_mod.entrenar_modelo(comp_nombre, comp_season)
+
+            if not params:
+                st.error("❌ No hay suficientes datos para entrenar el modelo.")
+            elif not proximos:
+                st.info("ℹ️ No hay partidos próximos en la BD. Sincroniza primero desde ⚙️ Sistema.")
+            else:
+                st.markdown(f"<p style='color:#8A97B5;font-size:12px;font-weight:700;margin-bottom:14px;'>📋 {len(proximos)} próximos partidos · Predicciones del modelo</p>", unsafe_allow_html=True)
+
+                total_picks_ev = 0
+                for partido in proximos[:8]:
+                    home = partido["home_team"]
+                    away = partido["away_team"]
+                    hora = fmt_hora(partido.get("fecha",""))
+
+                    pred = modelo_mod.predecir_partido(home, away, params)
+                    if not pred: continue
+
+                    cuotas = emparejar_partido(home, away, odds_lista) if odds_lista else {}
+                    picks  = modelo_mod.detectar_valor(pred, cuotas) if cuotas else []
+                    total_picks_ev += len(picks)
+
+                    ph = int(pred["prob_home"]*100)
+                    pd_ = int(pred["prob_draw"]*100)
+                    pa = int(pred["prob_away"]*100)
+
+                    picks_html = ""
+                    for pk in picks[:3]:
+                        clase = "ev-badge" if pk["valor_esperado"] > 7 else "ev-badge-mod"
+                        picks_html += f'<span class="{clase}">🎯 {tr_pick(pk["seleccion"])} @{pk["cuota"]} · +{pk["valor_esperado"]:.1f}% EV · Kelly {pk["kelly_pct"]}%</span>'
+
+                    ev_section = f'<div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.07);">{picks_html}</div>' if picks_html else ""
+
+                    st.markdown(
+                        '<div class="pred-card">'
+                        '<div class="pred-teams">'
+                        f'<span class="pred-team">{fl(home)} {tr(home)}</span>'
+                        f'<span class="pred-time">{hora}</span>'
+                        f'<span class="pred-team">{tr(away)} {fl(away)}</span>'
+                        '</div>'
+                        '<div class="prob-bar" style="height:10px;border-radius:5px;margin-bottom:6px;">'
+                        f'<div class="pb-h" style="width:{ph}%"></div>'
+                        f'<div class="pb-d" style="width:{pd_}%"></div>'
+                        f'<div class="pb-a" style="width:{pa}%"></div>'
+                        '</div>'
+                        '<div class="prob-pcts">'
+                        f'<span class="pct-h">{ph}%</span>'
+                        f'<span class="pct-d">{pd_}%</span>'
+                        f'<span class="pct-a">{pa}%</span>'
+                        '</div>'
+                        f'<div style="font-size:10px;color:#8A97B5;margin-top:6px;">⚽ Goles esperados: <b style="color:#EEF4FF;">{pred["lambda_home"]:.2f}</b> — <b style="color:#EEF4FF;">{pred["lambda_away"]:.2f}</b> · Marcador probable: <b style="color:#00C2FF;">{pred["marcador_probable"]}</b></div>'
+                        + ev_section
+                        + '</div>',
+                        unsafe_allow_html=True)
+
+                    if picks:
+                        with st.expander(f"🔍 Análisis de contexto — {tr(home)} vs {tr(away)}"):
+                            if st.button(f"🤖 Analizar con IA", key=f"ctx_{partido['id']}"):
+                                with st.spinner("Buscando noticias actuales..."):
+                                    ctx = gemini_mod.analizar_contexto_partido(home, away, comp_nombre, pred)
+                                if ctx:
+                                    st.markdown(f"**Lesiones {tr(home)}:** {ctx.get('lesiones_home',{}).get('detalle','N/D')}")
+                                    st.markdown(f"**Lesiones {tr(away)}:** {ctx.get('lesiones_away',{}).get('detalle','N/D')}")
+                                    st.markdown(f"**Forma local:** {ctx.get('forma_home',{}).get('ultimos_5','N/D')} — {ctx.get('forma_home',{}).get('detalle','')}")
+                                    st.markdown(f"**Forma visitante:** {ctx.get('forma_away',{}).get('ultimos_5','N/D')} — {ctx.get('forma_away',{}).get('detalle','')}")
+                                    st.markdown(f"**Ajuste sugerido:** {ctx.get('ajuste_sugerido',{}).get('razon','Sin cambios')}")
+                                    st.markdown(f"**Resumen:** {ctx.get('resumen','')}")
+
+                if total_picks_ev == 0 and cuotas:
+                    st.info("ℹ️ El modelo no detectó picks con valor esperado positivo en estos partidos. Las cuotas del mercado ya reflejan bien las probabilidades.")
+                elif not cuotas:
+                    st.info("ℹ️ No hay cuotas del mercado disponibles para detectar valor. Las probabilidades del modelo son correctas pero no se puede calcular +EV.")
+
+# ───────────────────────────────────────────────────────────────
+# TAB 3 — ESTADÍSTICAS (ROI + Hit Rate + Historial)
+# ───────────────────────────────────────────────────────────────
+with tab3:
+    comp_stats = st.selectbox("Competición", list(COMPETICIONES.keys()), key="comp_stats")
+    comp_nombre_s = COMPETICIONES[comp_stats][0]
+
+    stats = bd.get_estadisticas_modelo(comp_nombre_s)
+    color = "#00E676" if stats["hit_rate"] >= 55 else "#FFB700" if stats["hit_rate"] >= 45 else "#FF3B5C"
 
     st.markdown(
         '<div class="dash-grid">'
-        '<div class="d-card">'
-        f'<div class="d-val" style="color:{color_hr};">{hit}%</div>'
-        '<div class="d-lbl">Hit Rate Global</div>'
-        '</div>'
-        '<div class="d-card">'
-        f'<div class="d-val" style="color:#00E676;">{acertados}</div>'
-        '<div class="d-lbl">Picks Acertados</div>'
-        '</div>'
-        '<div class="d-card">'
-        f'<div class="d-val" style="color:#FF3B5C;">{fallidos}</div>'
-        '<div class="d-lbl">Picks Fallados</div>'
-        '</div>'
-        '</div>'
-        "<p style='color:#EEF4FF;font-weight:800;font-size:13px;text-transform:uppercase;"
-        "letter-spacing:.5px;margin-bottom:16px;'>📋 Historial de Operaciones</p>",
-        unsafe_allow_html=True,
-    )
+        f'<div class="d-card"><div class="d-val" style="color:{color};">{stats["hit_rate"]}%</div><div class="d-lbl">Hit Rate</div></div>'
+        f'<div class="d-card"><div class="d-val" style="color:{"#00E676" if stats["roi"]>=0 else "#FF3B5C"};">{stats["roi"]:+.1f}%</div><div class="d-lbl">ROI</div></div>'
+        f'<div class="d-card"><div class="d-val" style="color:#8B5CF6;">{stats["total"]}</div><div class="d-lbl">Total Picks</div></div>'
+        '</div>',
+        unsafe_allow_html=True)
 
-    if not historial:
-        st.info("No hay registros. Guarda tus primeros boletos en la pestaña anterior.")
+    c1, c2 = st.columns(2)
+    c1.metric("✅ Acertados", stats["acertados"])
+    c2.metric("❌ Fallidos",  stats["fallidos"])
+
+    # Mejor mercado
+    mejores = bd.get_mejor_mercado(comp_nombre_s)
+    if mejores:
+        st.markdown("<p style='color:#EEF4FF;font-weight:800;font-size:13px;margin-top:18px;margin-bottom:10px;'>📈 Rendimiento por Mercado</p>", unsafe_allow_html=True)
+        for m in mejores:
+            roi_color = "#00E676" if m["roi"] >= 0 else "#FF3B5C"
+            st.markdown(
+                '<div class="hist-row">'
+                f'<div><div class="h-meta">{m["mercado"]}</div>'
+                f'<div class="h-txt">{m["total"]} picks · {m["hit_rate"]}% acierto</div></div>'
+                f'<span class="h-badge" style="background:{roi_color}20;color:{roi_color};border:1px solid {roi_color}40;">ROI {m["roi"]:+.1f}%</span>'
+                '</div>',
+                unsafe_allow_html=True)
+
+    # Historial de picks con valor
+    st.markdown("<p style='color:#EEF4FF;font-weight:800;font-size:13px;margin-top:18px;margin-bottom:10px;'>📋 Historial de Picks +EV</p>", unsafe_allow_html=True)
+    historial_ev = bd.get_valores_por_competicion(comp_nombre_s, limit=20)
+    if not historial_ev:
+        st.info("Sin historial de picks todavía. Genera predicciones en la pestaña 🔮.")
     else:
-        for t in historial:
-            data_t     = json.loads(t["analisis_json"])
-            estrategias = data_t.get("estrategias", [])
+        for pick in historial_ev:
+            estado = pick.get("resultado","pendiente")
+            bg = "#00E676" if estado=="acertado" else "#FF3B5C" if estado=="fallido" else "#4A5568"
+            st.markdown(
+                f'<div class="hist-row" style="border-left-color:{bg};">'
+                f'<div><div class="h-meta">{tr_pick(pick.get("home_team",""))} vs {tr_pick(pick.get("away_team",""))}</div>'
+                f'<div class="h-txt">{pick.get("mercado","")} · {tr_pick(pick.get("seleccion",""))} @{pick.get("cuota",0):.2f} · EV {pick.get("valor_esperado",0)*100:+.1f}%</div></div>'
+                f'<span class="h-badge" style="background:{bg};color:#fff;">{estado}</span>'
+                '</div>',
+                unsafe_allow_html=True)
+            c1, c2, c3, _ = st.columns([1,1,1,3])
+            if c1.button("✅", key=f"ev_ok_{pick['id']}"): bd.actualizar_resultado_valor(pick["id"],"acertado"); st.rerun()
+            if c2.button("❌", key=f"ev_fa_{pick['id']}"): bd.actualizar_resultado_valor(pick["id"],"fallido");  st.rerun()
+            if c3.button("⏳", key=f"ev_pe_{pick['id']}"): bd.actualizar_resultado_valor(pick["id"],"pendiente");st.rerun()
 
+    # Historial de boletos IA
+    st.markdown("<p style='color:#EEF4FF;font-weight:800;font-size:13px;margin-top:18px;margin-bottom:10px;'>🎟️ Historial Boletos IA</p>", unsafe_allow_html=True)
+    with st.spinner("Cargando historial..."):
+        auto_verificar_jornada()
+        historial_ia = bd.cargar_historial_db()
+
+    if not historial_ia:
+        st.info("Sin boletos guardados todavía.")
+    else:
+        for t in historial_ia:
+            data_t = json.loads(t["analisis_json"])
+            estrategias = data_t.get("estrategias",[])
             with st.expander(f"🎫 {t['fecha_gen']} · {t['liga']}"):
-                st.markdown(
-                    f"<div style='font-size:10px;color:#8A97B5;margin-bottom:12px;'>"
-                    f"<b>Partidos:</b> {tr_pick(t['partidos'])}</div>",
-                    unsafe_allow_html=True,
-                )
-
+                st.markdown(f"<div style='font-size:10px;color:#8A97B5;margin-bottom:10px;'><b>Partidos:</b> {tr_pick(t['partidos'])}</div>", unsafe_allow_html=True)
                 items = [
-                    ("res_estrella",   "⭐ Pick Base",
-                     tr_pick(data_t.get("pick_estrella", {}).get("seleccion", "N/D"))),
-                    ("res_mas_seguro", "🛡️ Anti-Sorpresas",
-                     tr_pick(data_t.get("pick_mas_seguro", {}).get("seleccion", "N/D"))),
-                    ("res_segura",     "🟢 Combinada Segura",
-                     f"Cuota @{estrategias[0].get('cuota_total','N/D')}" if len(estrategias) > 0 else "N/D"),
-                    ("res_moderada",   "🟡 Combinada Moderada",
-                     f"Cuota @{estrategias[1].get('cuota_total','N/D')}" if len(estrategias) > 1 else "N/D"),
-                    ("res_arriesgada", "🔴 Combinada Arriesgada",
-                     f"Cuota @{estrategias[2].get('cuota_total','N/D')}" if len(estrategias) > 2 else "N/D"),
+                    ("res_estrella","⭐ Pick Base",   tr_pick(data_t.get("pick_estrella",{}).get("seleccion","N/D"))),
+                    ("res_mas_seguro","🛡️ Anti-Sorp.", tr_pick(data_t.get("pick_mas_seguro",{}).get("seleccion","N/D"))),
+                    ("res_segura","🟢 Segura",   f"@{estrategias[0].get('cuota_total','?')}" if len(estrategias)>0 else "N/D"),
+                    ("res_moderada","🟡 Moderada", f"@{estrategias[1].get('cuota_total','?')}" if len(estrategias)>1 else "N/D"),
+                    ("res_arriesgada","🔴 Arriesgada",f"@{estrategias[2].get('cuota_total','?')}" if len(estrategias)>2 else "N/D"),
                 ]
-
                 for col_name, titulo, sel_txt in items:
-                    estado = t.get(col_name, "pendiente")
-                    bg = "#00E676" if estado == "acertado" else "#FF3B5C" if estado == "fallido" else "#4A5568"
+                    estado = t.get(col_name,"pendiente")
+                    bg = "#00E676" if estado=="acertado" else "#FF3B5C" if estado=="fallido" else "#4A5568"
                     st.markdown(
                         f'<div class="hist-row" style="border-left-color:{bg};">'
-                        f'<div><div class="h-meta">{titulo}</div>'
-                        f'<div class="h-txt">{sel_txt}</div></div>'
-                        f'<span class="h-badge" style="background:{bg};color:#fff;">{estado}</span>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
+                        f'<div><div class="h-meta">{titulo}</div><div class="h-txt">{sel_txt}</div></div>'
+                        f'<span class="h-badge" style="background:{bg};color:#fff;">{estado}</span></div>',
+                        unsafe_allow_html=True)
+                    c1,c2,c3,_ = st.columns([1,1,1,3])
+                    if c1.button("✅",key=f"ia_ok_{t['id']}_{col_name}"): bd.actualizar_resultado_historial(t["id"],col_name,"acertado"); st.rerun()
+                    if c2.button("❌",key=f"ia_fa_{t['id']}_{col_name}"): bd.actualizar_resultado_historial(t["id"],col_name,"fallido");  st.rerun()
+                    if c3.button("⏳",key=f"ia_pe_{t['id']}_{col_name}"): bd.actualizar_resultado_historial(t["id"],col_name,"pendiente");st.rerun()
+                st.markdown("<hr style='border-color:rgba(255,255,255,0.05);margin:8px 0;'>",unsafe_allow_html=True)
+                if st.button("🗑️ Eliminar",key=f"ia_del_{t['id']}"): bd.eliminar_ticket_db(t["id"]); st.rerun()
 
-                    c1, c2, c3, _ = st.columns([1, 1, 1, 3])
-                    if c1.button("✅", key=f"ok_{t['id']}_{col_name}", help="Marcar como Acertado"):
-                        actualizar_resultado_manual(t["id"], col_name, "acertado"); st.rerun()
-                    if c2.button("❌", key=f"fa_{t['id']}_{col_name}", help="Marcar como Fallido"):
-                        actualizar_resultado_manual(t["id"], col_name, "fallido"); st.rerun()
-                    if c3.button("⏳", key=f"pe_{t['id']}_{col_name}", help="Restablecer a Pendiente"):
-                        actualizar_resultado_manual(t["id"], col_name, "pendiente"); st.rerun()
+# ───────────────────────────────────────────────────────────────
+# TAB 4 — SISTEMA (sincronización, modelo, admin)
+# ───────────────────────────────────────────────────────────────
+with tab4:
+    comp_sys = st.selectbox("Competición", list(COMPETICIONES.keys()), key="comp_sys")
+    comp_nombre_sys, comp_season_sys, comp_odds_sys = COMPETICIONES[comp_sys]
 
-                st.markdown("<hr style='border-color:rgba(255,255,255,0.05);margin:10px 0;'>", unsafe_allow_html=True)
-                if st.button("🗑️ Eliminar Registro", key=f"del_{t['id']}"):
-                    eliminar_ticket_db(t["id"]); st.rerun()
+    # Estado actual
+    estado_sys = modelo_mod.estado_modelo(comp_nombre_sys, comp_season_sys)
+    st.markdown('<div class="sys-card"><div class="sys-title">📡 Estado de Datos</div>', unsafe_allow_html=True)
+    c1,c2,c3 = st.columns(3)
+    c1.metric("Total partidos",  estado_sys["partidos_en_bd"])
+    c2.metric("Finalizados",     estado_sys["partidos_finalizados"])
+    c3.metric("Por jugar",       estado_sys["partidos_pendientes"])
+    model_estado = "✅ Entrenado" if estado_sys["modelo_entrenado"] else "⏳ Sin datos suficientes"
+    st.markdown(f"<p style='font-size:12px;color:#8A97B5;margin-top:8px;'>Modelo: <b style='color:#EEF4FF;'>{model_estado}</b> · Equipos: <b style='color:#EEF4FF;'>{estado_sys['n_equipos']}</b> · Partidos usados: <b style='color:#EEF4FF;'>{estado_sys['n_partidos_usados']}</b></p>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # Sincronización
+    st.markdown('<div class="sys-card"><div class="sys-title">🔄 Sincronización Football-Data.org</div>', unsafe_allow_html=True)
+    st.markdown("<p style='font-size:11px;color:#8A97B5;margin-bottom:10px;'>Usa 1 llamada de tu límite diario de 100.</p>", unsafe_allow_html=True)
+
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        if st.button("📥 Sincronizar todos los partidos"):
+            with st.spinner(f"Descargando partidos de {comp_nombre_sys}..."):
+                resultado = datos_mod.sincronizar_competicion(
+                    comp_nombre_sys,
+                    datos_mod.COMPETICIONES.get(comp_nombre_sys, ""),
+                    comp_season_sys
+                )
+            if resultado.get("ok"):
+                st.success(resultado["mensaje"])
+                modelo_mod.entrenar_modelo.clear()
+                st.rerun()
+            else:
+                st.error(resultado.get("mensaje","Error desconocido"))
+
+    with col_s2:
+        if st.button("🔄 Actualizar resultados"):
+            with st.spinner("Actualizando resultados del día..."):
+                resultado = datos_mod.actualizar_resultados(
+                    comp_nombre_sys,
+                    datos_mod.COMPETICIONES.get(comp_nombre_sys, ""),
+                    comp_season_sys
+                )
+            if resultado.get("ok"):
+                st.success(resultado["mensaje"])
+                modelo_mod.entrenar_modelo.clear()
+            else:
+                st.error(resultado.get("mensaje","Error"))
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Modelo
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.markdown('<div class="sys-card"><div class="sys-title">🧠 Modelo Dixon-Coles</div>', unsafe_allow_html=True)
+    st.markdown("<p style='font-size:11px;color:#8A97B5;margin-bottom:10px;'>El modelo se reentrena automáticamente con cada sincronización. El caché dura 1 hora.</p>", unsafe_allow_html=True)
+    if st.button("♻️ Forzar reentrenamiento del modelo"):
+        modelo_mod.entrenar_modelo.clear()
+        with st.spinner("Reentrenando..."):
+            params_new = modelo_mod.entrenar_modelo(comp_nombre_sys, comp_season_sys)
+        if params_new:
+            st.success(f"✅ Modelo reentrenado con {params_new['n_partidos']} partidos. Convergió: {params_new['convergido']}")
+        else:
+            st.warning("⚠️ No hay suficientes partidos finalizados. Sincroniza primero.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Llamadas API
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    plan = datos_mod.plan_llamadas_diario()
+    st.markdown(
+        '<div class="sys-card"><div class="sys-title">📊 Gestión de llamadas diarias</div>'
+        f'<p style="font-size:12px;color:#8A97B5;">Límite: <b style="color:#EEF4FF;">{plan["limite_diario"]}/día</b> · '
+        f'Uso recomendado: <b style="color:#00C2FF;">{plan["llamadas_reservadas"]} llamadas</b> · '
+        f'Margen disponible: <b style="color:#00E676;">{plan["llamadas_disponibles_extras"]} libres</b></p>'
+        '</div>',
+        unsafe_allow_html=True)
