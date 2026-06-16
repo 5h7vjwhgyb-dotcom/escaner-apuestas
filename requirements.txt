@@ -1,5 +1,7 @@
 streamlit
-requests
-google-genai
 supabase
-spicy
+requests
+google-generativeai
+scipy
+numpy
+google-genai
