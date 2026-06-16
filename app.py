@@ -4,6 +4,7 @@ Dashboard principal del sistema de predicción de apuestas deportivas.
 Integra: Football-Data.org + Odds API + Dixon-Coles + Gemini IA
 """
 
+from typing import List, Tuple
 import streamlit as st
 import requests
 import re
@@ -17,6 +18,7 @@ import bd
 import datos as datos_mod
 import modelo as modelo_mod
 import gemini as gemini_mod
+import elo as elo_mod
 
 try:
     from zoneinfo import ZoneInfo
@@ -192,9 +194,22 @@ if not all([api_gemini, api_odds, supa_url, supa_key, api_football]):
 # ═══════════════════════════════════════════════════════════════
 # FUNCIONES COMPARTIDAS
 # ═══════════════════════════════════════════════════════════════
+# ── Bookmakers en orden de prioridad (Betano primero) ──────────
+BM_PRIORITY = ["betano", "pinnacle", "bet365", "unibet", "bwin", "williamhill"]
+
 def extraer_h2h(partido):
+    """Extrae cuotas H2H priorizando Betano > Pinnacle > otros bookmakers."""
     home, away = partido.get("home_team",""), partido.get("away_team","")
-    for bm in partido.get("bookmakers",[]):
+
+    def prioridad_bm(bm):
+        key = bm.get("key","").lower()
+        for i, pref in enumerate(BM_PRIORITY):
+            if pref in key: return i
+        return len(BM_PRIORITY)
+
+    bookmakers = sorted(partido.get("bookmakers",[]), key=prioridad_bm)
+
+    for bm in bookmakers:
         for mkt in bm.get("markets",[]):
             if mkt.get("key")=="h2h":
                 cuotas = {o["name"]:o["price"] for o in mkt.get("outcomes",[])}
@@ -202,9 +217,69 @@ def extraer_h2h(partido):
                 if ho and ao:
                     ph,pd,pa = 1/ho,(1/do if do else 0),1/ao
                     t = ph+pd+pa
-                    return {"home":round(ph/t*100),"draw":round(pd/t*100) if do else 0,
-                            "away":round(pa/t*100),"home_odd":ho,"draw_odd":do,"away_odd":ao}
+                    return {
+                        "home":round(ph/t*100),"draw":round(pd/t*100) if do else 0,
+                        "away":round(pa/t*100),"home_odd":ho,"draw_odd":do,"away_odd":ao,
+                        "bookmaker": bm.get("title",""),
+                    }
     return None
+
+# ── Validador de Reglas de Oro (código, no solo prompt) ────────
+MERCADOS_1X2       = {"1x2","ganador","victoria","resultado final"}
+MERCADOS_HANDICAP  = {"hándicap","handicap","asian handicap","hcap"}
+MERCADOS_GOALS     = {"over","under","goles","total"}
+MERCADOS_CORNERS   = {"corner","córner","esquina"}
+MERCADOS_TARJETAS  = {"tarjeta","card","yellow","roja"}
+
+def categorizar_mercado(mercado_str: str) -> str:
+    m = mercado_str.lower()
+    if any(k in m for k in MERCADOS_1X2):      return "1x2"
+    if any(k in m for k in MERCADOS_HANDICAP): return "handicap"
+    if any(k in m for k in MERCADOS_GOALS):    return "goles"
+    if any(k in m for k in MERCADOS_CORNERS):  return "corners"
+    if any(k in m for k in MERCADOS_TARJETAS): return "tarjetas"
+    return "otro"
+
+def extraer_partido_de_pick(pick_str: str) -> str:
+    """Extrae el nombre del partido de un string de pick."""
+    if ":" in pick_str:
+        return pick_str.split(":")[0].strip().lower()
+    return pick_str.lower()[:30]
+
+def validar_combinada(picks: List) -> Tuple[List, List]:
+    """
+    Valida que la combinada respete las Reglas de Oro:
+    1. No mezclar 1X2 y Hándicap del MISMO partido.
+    2. Cuotas dentro de rangos razonables.
+    Retorna (picks_validos, advertencias).
+    """
+    from typing import List, Tuple
+    advertencias = []
+    picks_validos = []
+    partidos_1x2      = {}  # partido → pick
+    partidos_handicap = {}
+
+    for pick in picks:
+        pick_str = str(pick)
+        partido  = extraer_partido_de_pick(pick_str)
+        cat      = categorizar_mercado(pick_str)
+
+        if cat == "1x2":
+            if partido in partidos_handicap:
+                advertencias.append(f"⚠️ Regla 2 violada: '{partido[:30]}' tiene 1X2 y Hándicap. Se eliminó el hándicap.")
+                picks_validos = [p for p in picks_validos if extraer_partido_de_pick(str(p)) != partido]
+                partidos_handicap.pop(partido)
+            partidos_1x2[partido] = pick
+
+        elif cat == "handicap":
+            if partido in partidos_1x2:
+                advertencias.append(f"⚠️ Regla 2 violada: '{partido[:30]}' ya tiene 1X2. Hándicap ignorado.")
+                continue
+            partidos_handicap[partido] = pick
+
+        picks_validos.append(pick)
+
+    return picks_validos, advertencias
 
 def extraer_cuotas_odds(partido_odds):
     cuotas = {}
@@ -260,22 +335,60 @@ def obtener_partidos_mundial():
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def ejecutar_algoritmo_quant(partidos_seleccionados):
-    prompt = (
-        "Eres Analista Experto en Apuestas del Mundial FIFA 2026. "
-        "REGLA 1: opciones altísima probabilidad @1.20-@1.40. "
-        "REGLA 2 ANTI-CORRELACIÓN: NUNCA mezcles Ganador y Hándicap del mismo partido. "
-        "MERCADOS: Ganador 1X2, Doble Oportunidad, Goles Over/Under 0.5-5.5, Córners, Tarjetas, Hándicap. "
-        "ESTRUCTURA: SEGURA 1-2 picks @1.20-@1.40 | MODERADA 3-4 picks @1.50-@3.50 | ARRIESGADA 3-5 picks @3.50-@7.00. "
-        f"PARTIDOS: {json.dumps(partidos_seleccionados, ensure_ascii=False)}. "
-        'Responde SOLO JSON sin markdown: {"game_script":"","pick_estrella":{"partido":"","categoria_permitida":"","seleccion":"","cuota_betano":1.25,"razon_cuantitativa":""},"pick_mas_seguro":{"partido":"","categoria_permitida":"","seleccion":"","cuota_betano":1.18,"razon_cuantitativa":""},"estrategias":[{"tipo":"segura","cuota_total":1.35,"descripcion":"","picks":[]},{"tipo":"moderada","cuota_total":2.20,"descripcion":"","picks":[]},{"tipo":"arriesgada","cuota_total":4.50,"descripcion":"","picks":[]}]}'
-    )
+    prompt = """Eres un Analista Cuantitativo de Apuestas del Mundial FIFA 2026. Genera picks con máxima probabilidad de acierto.
+
+REGLA DE ORO 1 — FILOSOFÍA:
+Solo picks con probabilidad real >65%. Cuotas objetivo @1.15-@1.45.
+Prefiere: Doble Oportunidad, Over 1.5, Over 2.5 en partidos entre equipos atacantes.
+
+REGLA DE ORO 2 — ANTI-CORRELACIÓN (CRÍTICO — BETANO LO PROHÍBE):
+NUNCA en la misma combinada: Ganador 1X2 + Hándicap del MISMO partido.
+CORRECTO: "Alemania gana (1X2)" + "Alemania Over 2.5 goles" → mercados distintos, OK
+INCORRECTO: "Alemania gana (1X2)" + "Alemania -1.5 hándicap" → MISMO resultado, PROHIBIDO
+
+REGLA DE ORO 3 — INDEPENDENCIA:
+Los picks de una combinada deben ser de partidos DISTINTOS o de mercados INDEPENDIENTES.
+
+MERCADOS PERMITIDOS EN BETANO:
+✅ Ganador del partido (1, X, 2)
+✅ Doble Oportunidad (1X, X2, 12)
+✅ Total de Goles Over/Under (0.5, 1.5, 2.5, 3.5, 4.5)
+✅ Ambos Equipos Marcan (Sí/No)
+✅ Córners Over/Under
+✅ Tarjetas Over/Under
+✅ Hándicap (NUNCA con 1X2 del mismo partido)
+
+ESTRUCTURA DE BOLETOS:
+- SEGURA: 1-2 picks, cuota total @1.15-@1.50. Máxima certeza.
+- MODERADA: 2-3 picks, cuota total @1.50-@3.50. Balance riesgo/retorno.
+- ARRIESGADA: 3-4 picks, cuota total @3.50-@7.00. Mayor potencial.
+
+PARTIDOS DISPONIBLES:
+""" + json.dumps(partidos_seleccionados, ensure_ascii=False) + """
+
+Responde SOLO con JSON válido (sin markdown, sin texto extra):
+{"game_script":"análisis de las mejores oportunidades en 2 oraciones","pick_estrella":{"partido":"Equipo A vs Equipo B","categoria_permitida":"Over/Under","seleccion":"Over 1.5","cuota_betano":1.25,"razon_cuantitativa":"justificación basada en datos"},"pick_mas_seguro":{"partido":"Equipo C vs Equipo D","categoria_permitida":"Doble Oportunidad","seleccion":"1X","cuota_betano":1.18,"razon_cuantitativa":"justificación"},"estrategias":[{"tipo":"segura","cuota_total":1.35,"descripcion":"estrategia conservadora","picks":["Partido A: Over 1.5 (@1.25)","Partido B: 1X (@1.08)"]},{"tipo":"moderada","cuota_total":2.20,"descripcion":"balance óptimo","picks":["Partido A: Pick1 (@1.25)","Partido B: Pick2 (@1.30)","Partido C: Pick3 (@1.35)"]},{"tipo":"arriesgada","cuota_total":4.50,"descripcion":"máximo retorno","picks":["Partido A: Pick1 (@1.30)","Partido B: Pick2 (@1.40)","Partido C: Pick3 (@1.35)","Partido D: Pick4 (@1.25)"]}]}"""
+
     try:
         client = genai.Client(api_key=api_gemini)
         resp   = client.models.generate_content(
             model="gemini-3.1-flash-lite", contents=prompt,
-            config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.1, response_mime_type="application/json"))
-        return json.loads(resp.text.strip().replace("```json","").replace("```","").strip())
-    except Exception as e: return {"error": str(e)}
+            config=types.GenerateContentConfig(
+                max_output_tokens=4096, temperature=0.1,
+                response_mime_type="application/json"))
+        data = json.loads(resp.text.strip().replace("```json","").replace("```","").strip())
+
+        # ── Validar Reglas de Oro en código ──────────────────────
+        for estrategia in data.get("estrategias", []):
+            picks_orig = estrategia.get("picks", [])
+            picks_ok, avisos = validar_combinada(picks_orig)
+            estrategia["picks"] = picks_ok
+            if avisos:
+                estrategia["advertencias"] = avisos
+
+        return data
+    except Exception as e:
+        return {"error": str(e)}
 
 def auto_verificar_jornada():
     try:
@@ -418,6 +531,9 @@ with tab1:
                     p_str,b_str = (pick.split(":",1) if ":" in pick else ("Partido",pick))
                     ph += f'<div class="i-match">{tr_pick(p_str.strip())}</div><div class="i-bet">{tr_pick(b_str.strip())}</div>'
                 render_slip(clase,tit,e.get("cuota_total","-"),ph,e.get("descripcion",""))
+                # Mostrar advertencias de reglas de oro si las hay
+                for aviso in e.get("advertencias",[]):
+                    st.warning(aviso)
 
             if not st.session_state.get("ticket_guardado",False):
                 st.markdown('<div class="btn-save">', unsafe_allow_html=True)
@@ -442,7 +558,74 @@ with tab2:
     c3.metric("Equipos",         estado["n_equipos"])
 
     if not estado["listo"]:
-        st.warning(f"⚠️ Se necesitan al menos 5 partidos finalizados. Actualmente: {estado['partidos_finalizados']}. Ve a ⚙️ Sistema y sincroniza los datos.")
+        # ── Sin datos históricos: usar sistema Elo ──────────────
+        st.info(f"⚡ Sin datos históricos suficientes ({estado['partidos_finalizados']} partidos). Usando predicciones por **Rating Elo** — sistema alternativo que no requiere API histórica.")
+
+        ratings_elo = elo_mod.cargar_ratings()
+        odds_lista  = obtener_odds_competicion(comp_odds_key)
+
+        col_e1, col_e2 = st.columns(2)
+        ver_pred_elo  = col_e1.button("🔮 Predicciones Elo")
+        ver_rank_elo  = col_e2.button("🏅 Ranking Elo")
+
+        if ver_rank_elo:
+            ranking = elo_mod.ranking_elo(ratings_elo)
+            st.markdown("**🏅 Ranking por Rating Elo**")
+            for i,eq in enumerate(ranking[:15],1):
+                c1,c2,c3 = st.columns([1,4,2])
+                c1.markdown(f"**#{i}**")
+                c2.markdown(f"**{tr(eq['equipo'])}**")
+                c3.metric("Elo", eq["elo"])
+
+        if ver_pred_elo:
+            proximos = datos_mod.get_proximos_para_predecir(comp_nombre)
+            if not proximos:
+                st.warning("Sin partidos próximos en BD. Ve a ⚙️ Sistema → Sincronizar.")
+            else:
+                st.markdown(f"<p style='color:#8A97B5;font-size:12px;font-weight:700;margin-bottom:14px;'>📋 {len(proximos)} próximos · Predicciones Elo</p>", unsafe_allow_html=True)
+                for partido in proximos[:8]:
+                    home = partido["home_team"]; away = partido["away_team"]
+                    hora = fmt_hora(partido.get("fecha",""))
+                    pred = elo_mod.calcular_probabilidades(home, away, ratings_elo)
+                    cuotas = emparejar_partido(home, away, odds_lista) if odds_lista else {}
+                    picks  = elo_mod.detectar_valor_elo(home, away, cuotas, ratings_elo) if cuotas else []
+                    ph = int(pred["prob_home"]*100)
+                    pd_ = int(pred["prob_draw"]*100)
+                    pa = int(pred["prob_away"]*100)
+                    picks_html = ""
+                    for pk in picks[:3]:
+                        cls = "ev-badge" if pk["valor_esperado"]>7 else "ev-badge-mod"
+                        picks_html += f'<span class="{cls}">🎯 {tr_pick(pk["seleccion"])} @{pk["cuota"]} · +{pk["valor_esperado"]:.1f}% EV · Kelly {pk["kelly_pct"]}%</span>'
+                    ev_sec = (f'<div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.07);">{picks_html}</div>' if picks_html else "")
+                    st.markdown(
+                        '<div class="pred-card">'
+                        '<div class="pred-teams">'
+                        f'<span class="pred-team">{fl(home)} {tr(home)}</span>'
+                        f'<span class="pred-time">{hora}</span>'
+                        f'<span class="pred-team">{tr(away)} {fl(away)}</span>'
+                        '</div>'
+                        '<div class="prob-bar" style="height:10px;border-radius:5px;margin-bottom:6px;">'
+                        f'<div class="pb-h" style="width:{ph}%"></div>'
+                        f'<div class="pb-d" style="width:{pd_}%"></div>'
+                        f'<div class="pb-a" style="width:{pa}%"></div>'
+                        '</div>'
+                        '<div class="prob-pcts">'
+                        f'<span class="pct-h">{ph}%</span>'
+                        f'<span class="pct-d">{pd_}%</span>'
+                        f'<span class="pct-a">{pa}%</span>'
+                        '</div>'
+                        f'<div style="font-size:10px;color:#8A97B5;margin-top:6px;">🎯 Goles esperados: <b style="color:#EEF4FF;">{pred["lambda_home"]:.2f}</b> — <b style="color:#EEF4FF;">{pred["lambda_away"]:.2f}</b> · Probable: <b style="color:#00C2FF;">{pred["marcador_probable"]}</b> · Elo: {pred["elo_home"]} vs {pred["elo_away"]}</div>'
+                        + ev_sec + '</div>',
+                        unsafe_allow_html=True)
+
+        # Botón actualizar Elo desde resultados reales
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        if st.button("🔄 Actualizar ratings Elo con resultados reales"):
+            scores_raw = bd.get_partidos_terminados(comp_nombre, comp_season)
+            if scores_raw:
+                with st.spinner("Actualizando ratings Elo..."):
+                    nuevos = elo_mod.actualizar_desde_scores(scores_raw)
+                st.success(f"✅ Ratings Elo actualizados con {len(scores_raw)} partidos.")
     else:
         if estado["modelo_entrenado"]:
             st.success(f"✅ Modelo entrenado · {estado['n_partidos_usados']} partidos · Ventaja local: +{estado['home_advantage']:.3f}")
