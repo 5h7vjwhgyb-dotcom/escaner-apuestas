@@ -13,27 +13,20 @@ from collections import defaultdict
 from google import genai
 from google.genai import types
 
-# Módulos del sistema
 import bd
 import datos as datos_mod
 import modelo as modelo_mod
 import gemini as gemini_mod
 
-# ─── Zona Horaria Chile ────────────────────────────────────────
 try:
     from zoneinfo import ZoneInfo
     TZ_CHILE = ZoneInfo("America/Santiago")
 except ImportError:
     TZ_CHILE = timezone(timedelta(hours=-4))
 
-# ─── HTML Helper ───────────────────────────────────────────────
 def compact(s):
-    """Colapsa HTML multi-línea a una línea. Evita code blocks de Markdown."""
     return re.sub(r'\n\s*', '', str(s))
 
-# ═══════════════════════════════════════════════════════════════
-# TRADUCCIONES Y BANDERAS
-# ═══════════════════════════════════════════════════════════════
 PAISES_ES = {
     "Germany":"Alemania","France":"Francia","Spain":"España","Italy":"Italia",
     "Brazil":"Brasil","Argentina":"Argentina","England":"Inglaterra",
@@ -92,10 +85,9 @@ def fmt_hora(iso):
     try: return datetime.fromisoformat(iso.replace("Z","+00:00")).astimezone(TZ_CHILE).strftime("%H:%M")
     except: return "N/D"
 def fmt_fecha(iso):
-    try: return datetime.fromisoformat(iso.replace("Z","+00:00")).astimezone(TZ_CHILE).strftime("%d %b · %H:%M")
-    except: return "Fecha N/D"
+    try: return datetime.fromisoformat(iso.replace("Z","+00:00")).astimezone(TZ_CHILE).strftime("%d %b %H:%M")
+    except: return "N/D"
 
-# ─── Competiciones ─────────────────────────────────────────────
 COMPETICIONES = {
     "🏆 Copa del Mundo 2026": ("FIFA World Cup", "2026", "soccer_fifa_world_cup"),
     "⚽ Premier League":      ("Premier League", "2025", "soccer_epl"),
@@ -105,9 +97,6 @@ COMPETICIONES = {
     "🇫🇷 Ligue 1":           ("Ligue 1",        "2025", "soccer_france_ligue_one"),
 }
 
-# ═══════════════════════════════════════════════════════════════
-# CONFIGURACIÓN Y ESTILOS
-# ═══════════════════════════════════════════════════════════════
 st.set_page_config(page_title="BET⚡COMBINADAS", layout="centered", initial_sidebar_state="collapsed")
 st.markdown("""
 <style>
@@ -125,12 +114,11 @@ st.markdown("""
 .stButton>button{background:linear-gradient(135deg,#00C2FF,#0080CC)!important;border:none!important;border-radius:10px!important;color:#fff!important;font-weight:800!important;font-size:14px!important;width:100%!important;padding:.85em!important;transition:all .2s!important;box-shadow:0 4px 15px rgba(0,194,255,.2)!important;}
 .stButton>button:hover{opacity:.92!important;transform:translateY(-1px)!important;}
 .btn-save>button{background:linear-gradient(135deg,#8B5CF6,#6D28D9)!important;}
-.btn-danger>button{background:linear-gradient(135deg,#FF3B5C,#CC1F3D)!important;}
 .date-sep{display:flex;align-items:center;gap:10px;margin:28px 0 14px;}
 .date-badge{background:rgba(0,194,255,.08);border:1px solid rgba(0,194,255,.2);color:#00C2FF;font-size:10px;font-weight:800;padding:5px 14px;border-radius:20px;text-transform:uppercase;letter-spacing:.8px;white-space:nowrap;}
 .date-cnt{background:rgba(255,255,255,.06);color:#8A97B5;font-size:10px;font-weight:700;padding:4px 10px;border-radius:10px;}
 .date-line{flex:1;height:1px;background:linear-gradient(90deg,rgba(0,194,255,.15),transparent);}
-.mcard{background:linear-gradient(145deg,#0D1B2E,#0B1725);border:1px solid rgba(255,255,255,.08);border-bottom:none;border-radius:16px 16px 0 0;padding:18px 20px 16px;margin-bottom:0;box-shadow:0 2px 16px rgba(0,0,0,.25);}
+.mcard{background:linear-gradient(145deg,#0D1B2E,#0B1725);border:1px solid rgba(255,255,255,.08);border-bottom:none;border-radius:16px 16px 0 0;padding:18px 20px 16px;margin-bottom:0;}
 .teams-row{display:grid;grid-template-columns:1fr 88px 1fr;align-items:center;gap:8px;margin-bottom:16px;}
 .team-blk{display:flex;flex-direction:column;align-items:center;gap:5px;}
 .t-flag{font-size:38px;line-height:1;}
@@ -151,7 +139,7 @@ st.markdown("""
 .mcard-footer{background:#091420;border:1px solid rgba(255,255,255,.08);border-top:1px dashed rgba(0,194,255,.1);border-radius:0 0 16px 16px;padding:6px 20px;margin-bottom:16px;}
 .mcard-footer [data-testid="stCheckbox"]{background:transparent!important;border:none!important;padding:4px 0!important;margin:0!important;}
 .mcard-footer label p{font-size:11px!important;font-weight:700!important;color:#8A97B5!important;text-transform:uppercase!important;letter-spacing:.6px!important;}
-.tslip{background:linear-gradient(145deg,#101C2E,#0D1828);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:18px 20px;margin-bottom:16px;position:relative;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.25);}
+.tslip{background:linear-gradient(145deg,#101C2E,#0D1828);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:18px 20px;margin-bottom:16px;position:relative;overflow:hidden;}
 .tslip::before{content:'';position:absolute;top:0;left:0;width:5px;height:100%;}
 .slip-base::before{background:linear-gradient(180deg,#00C2FF,#0080CC);}
 .slip-anti::before{background:linear-gradient(180deg,#8B5CF6,#6D28D9);}
@@ -165,7 +153,7 @@ st.markdown("""
 .i-bet{font-size:15px;color:#EEF4FF;font-weight:800;padding-left:22px;margin-bottom:6px;position:relative;}
 .i-bet::before{content:'🎯';position:absolute;left:0;top:2px;font-size:12px;}
 .slip-desc{font-size:11px;color:#8A97B5;line-height:1.6;margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.07);}
-.pred-card{background:linear-gradient(145deg,#0D1B2E,#0B1725);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px 18px;margin-bottom:12px;box-shadow:0 2px 16px rgba(0,0,0,.2);}
+.pred-card{background:linear-gradient(145deg,#0D1B2E,#0B1725);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px 18px;margin-bottom:12px;}
 .pred-teams{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
 .pred-team{font-size:13px;font-weight:800;color:#EEF4FF;}
 .pred-time{font-size:11px;color:#00C2FF;font-weight:700;}
@@ -198,7 +186,7 @@ supa_key     = st.secrets.get("SUPABASE_KEY", "")
 api_football = st.secrets.get("FOOTBALL_API", "")
 
 if not all([api_gemini, api_odds, supa_url, supa_key, api_football]):
-    st.warning("⚠️ Faltan credenciales en Streamlit Secrets. Verifica: GEMINI_API, ODDS_API, SUPABASE_URL, SUPABASE_KEY, FOOTBALL_API.")
+    st.warning("⚠️ Faltan credenciales. Verifica en Secrets: GEMINI_API, ODDS_API, SUPABASE_URL, SUPABASE_KEY, FOOTBALL_API.")
     st.stop()
 
 # ═══════════════════════════════════════════════════════════════
@@ -219,7 +207,6 @@ def extraer_h2h(partido):
     return None
 
 def extraer_cuotas_odds(partido_odds):
-    """Extrae h2h + totals de un partido de Odds API para +EV."""
     cuotas = {}
     home = partido_odds.get("home_team","")
     away = partido_odds.get("away_team","")
@@ -229,67 +216,64 @@ def extraer_cuotas_odds(partido_odds):
             outcomes = mkt.get("outcomes",[])
             if key == "h2h":
                 for o in outcomes:
-                    if o["name"] == home:      cuotas["home"] = o["price"]
-                    elif o["name"] == "Draw":  cuotas["draw"] = o["price"]
-                    elif o["name"] == away:    cuotas["away"] = o["price"]
+                    if o["name"] == home:     cuotas["home"] = o["price"]
+                    elif o["name"]=="Draw":   cuotas["draw"] = o["price"]
+                    elif o["name"] == away:   cuotas["away"] = o["price"]
             elif key == "totals":
                 for o in outcomes:
                     pt = str(o.get("point",""))
-                    if "Over"  in o["name"] and pt == "2.5": cuotas["over25"]  = o["price"]
-                    if "Under" in o["name"] and pt == "2.5": cuotas["under25"] = o["price"]
-                    if "Over"  in o["name"] and pt == "1.5": cuotas["over15"]  = o["price"]
-                    if "Under" in o["name"] and pt == "1.5": cuotas["under15"] = o["price"]
-        break  # Solo primer bookmaker
+                    if "Over"  in o["name"] and pt=="2.5": cuotas["over25"]  = o["price"]
+                    if "Under" in o["name"] and pt=="2.5": cuotas["under25"] = o["price"]
+                    if "Over"  in o["name"] and pt=="1.5": cuotas["over15"]  = o["price"]
+                    if "Under" in o["name"] and pt=="1.5": cuotas["under15"] = o["price"]
+        break
     return cuotas
 
 def emparejar_partido(home_fd, away_fd, lista_odds):
-    """Cruza nombre de equipo Football-Data ↔ Odds API (coincidencia parcial)."""
-    def limpiar(n): return re.sub(r'\bfc\b|\bsc\b|\bac\b', '', n.lower()).strip()
-    h_clean = limpiar(home_fd)
-    a_clean = limpiar(away_fd)
+    def limpiar(n): return re.sub(r'\bfc\b|\bsc\b|\bac\b','',n.lower()).strip()
+    h = limpiar(home_fd); a = limpiar(away_fd)
     for p in lista_odds:
-        h_o = limpiar(p.get("home_team",""))
-        a_o = limpiar(p.get("away_team",""))
-        if (h_clean[:5] in h_o or h_o[:5] in h_clean) and \
-           (a_clean[:5] in a_o or a_o[:5] in a_clean):
+        ho = limpiar(p.get("home_team","")); ao = limpiar(p.get("away_team",""))
+        if (h[:5] in ho or ho[:5] in h) and (a[:5] in ao or ao[:5] in a):
             return extraer_cuotas_odds(p)
     return {}
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def obtener_odds_competicion(sport_key):
-    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
     try:
-        r = requests.get(url, params={"apiKey":api_odds,"regions":"eu,uk","markets":"h2h,totals"}, timeout=10)
-        r.raise_for_status()
-        return r.json()
+        r = requests.get(
+            f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/",
+            params={"apiKey":api_odds,"regions":"eu,uk","markets":"h2h,totals"},
+            timeout=10)
+        r.raise_for_status(); return r.json()
     except: return []
 
-# ─── Tab 1: funciones específicas del generador de boletos ─────
 @st.cache_data(ttl=3600, show_spinner=False)
 def obtener_partidos_mundial():
-    url = f"https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/"
     try:
-        r = requests.get(url, params={"apiKey":api_odds,"regions":"eu,uk,us","markets":"h2h,totals,spreads"}, timeout=10)
+        r = requests.get(
+            "https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/",
+            params={"apiKey":api_odds,"regions":"eu,uk,us","markets":"h2h,totals,spreads"},
+            timeout=10)
         r.raise_for_status(); return r.json()
     except Exception as e: return {"error": str(e)}
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def ejecutar_algoritmo_quant(partidos_seleccionados):
-    prompt = f"""
-Eres un Analista Experto en Apuestas Deportivas para el Mundial FIFA 2026.
-REGLA 1: Busca opciones de altísima probabilidad con cuotas @1.20-@1.40.
-REGLA 2 (ANTI-CORRELACIÓN): NUNCA mezcles "Ganador Directo" y "Hándicap" del mismo partido.
-MERCADOS: Ganador (1X2), Doble Oportunidad, Goles (Over/Under 0.5-5.5), Córners, Tarjetas, Hándicap.
-ESTRUCTURA: SEGURA 1-2 picks @1.20-@1.40 | MODERADA 3-4 picks @1.50-@3.50 | ARRIESGADA 3-5 picks @3.50-@7.00
-PARTIDOS: {json.dumps(partidos_seleccionados, ensure_ascii=False)}
-Responde SOLO con JSON (sin markdown):
-{{"game_script":"análisis","pick_estrella":{{"partido":"","categoria_permitida":"","seleccion":"","cuota_betano":1.25,"razon_cuantitativa":""}},"pick_mas_seguro":{{"partido":"","categoria_permitida":"","seleccion":"","cuota_betano":1.18,"razon_cuantitativa":""}},"estrategias":[{{"tipo":"segura","cuota_total":1.35,"descripcion":"","picks":[]}},{{"tipo":"moderada","cuota_total":2.20,"descripcion":"","picks":[]}},{{"tipo":"arriesgada","cuota_total":4.50,"descripcion":"","picks":[]}}]}}"""
+    prompt = (
+        "Eres Analista Experto en Apuestas del Mundial FIFA 2026. "
+        "REGLA 1: opciones altísima probabilidad @1.20-@1.40. "
+        "REGLA 2 ANTI-CORRELACIÓN: NUNCA mezcles Ganador y Hándicap del mismo partido. "
+        "MERCADOS: Ganador 1X2, Doble Oportunidad, Goles Over/Under 0.5-5.5, Córners, Tarjetas, Hándicap. "
+        "ESTRUCTURA: SEGURA 1-2 picks @1.20-@1.40 | MODERADA 3-4 picks @1.50-@3.50 | ARRIESGADA 3-5 picks @3.50-@7.00. "
+        f"PARTIDOS: {json.dumps(partidos_seleccionados, ensure_ascii=False)}. "
+        'Responde SOLO JSON sin markdown: {"game_script":"","pick_estrella":{"partido":"","categoria_permitida":"","seleccion":"","cuota_betano":1.25,"razon_cuantitativa":""},"pick_mas_seguro":{"partido":"","categoria_permitida":"","seleccion":"","cuota_betano":1.18,"razon_cuantitativa":""},"estrategias":[{"tipo":"segura","cuota_total":1.35,"descripcion":"","picks":[]},{"tipo":"moderada","cuota_total":2.20,"descripcion":"","picks":[]},{"tipo":"arriesgada","cuota_total":4.50,"descripcion":"","picks":[]}]}'
+    )
     try:
         client = genai.Client(api_key=api_gemini)
         resp   = client.models.generate_content(
-            model="gemini-3.1-flash-lite", contents=prompt,
-            config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.1, response_mime_type="application/json")
-        )
+            model="gemini-2.0-flash-lite", contents=prompt,
+            config=types.GenerateContentConfig(max_output_tokens=4096, temperature=0.1, response_mime_type="application/json"))
         return json.loads(resp.text.strip().replace("```json","").replace("```","").strip())
     except Exception as e: return {"error": str(e)}
 
@@ -301,18 +285,12 @@ def auto_verificar_jornada():
         if not pendientes: return
         r = requests.get(f"https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/scores/?apiKey={api_odds}&daysFrom=3", timeout=10)
         if r.status_code != 200: return
-        terminados = {}
-        for m in r.json():
-            if m.get("completed"):
-                home,away = m.get("home_team"),m.get("away_team")
-                sc = m.get("scores",[])
-                if len(sc)==2: terminados[f"{home} vs {away}"] = f"{home} {sc[0]['score']} - {sc[1]['score']} {away}"
-        if not terminados: return
         picks_pend = bd.get_valores_pendientes("FIFA World Cup")
-        resultados = gemini_mod.verificar_picks_pendientes(picks_pend) if picks_pend else []
-        for r2 in resultados:
-            if r2.get("pick_resultado") in ("acertado","fallido"):
-                bd.actualizar_resultado_valor(r2["id"], r2["pick_resultado"])
+        if picks_pend:
+            resultados = gemini_mod.verificar_picks_pendientes(picks_pend)
+            for r2 in resultados:
+                if r2.get("pick_resultado") in ("acertado","fallido"):
+                    bd.actualizar_resultado_valor(r2["id"], r2["pick_resultado"])
     except: pass
 
 # ═══════════════════════════════════════════════════════════════
@@ -321,16 +299,15 @@ def auto_verificar_jornada():
 tab1, tab2, tab3, tab4 = st.tabs(["⚡ Boletos IA", "🔮 Predicciones", "📊 Estadísticas", "⚙️ Sistema"])
 
 # ───────────────────────────────────────────────────────────────
-# TAB 1 — BOLETOS IA (generador con Gemini + Odds API)
+# TAB 1 — BOLETOS IA
 # ───────────────────────────────────────────────────────────────
 with tab1:
     st.markdown("<p style='color:#8A97B5;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:18px;'>🌍 Copa del Mundo 2026 · Selecciona partidos a analizar</p>", unsafe_allow_html=True)
-
-    with st.spinner("Sincronizando cuotas globales..."):
+    with st.spinner("Sincronizando cuotas..."):
         datos_api = obtener_partidos_mundial()
 
     if isinstance(datos_api, dict) and "error" in datos_api:
-        st.error(f"❌ Error en la API de cuotas: {datos_api['error']}")
+        st.error(f"❌ Error API de cuotas: {datos_api['error']}")
     elif not datos_api:
         st.info("⏳ No hay partidos disponibles en este momento.")
     else:
@@ -367,12 +344,10 @@ with tab1:
                         f'<span class="pct-h">{pw}%</span>'
                         f'<span class="pct-d">{dw}%</span>'
                         f'<span class="pct-a">{aw}%</span>'
-                        '</div></div>'
-                    )
+                        '</div></div>')
                     c_home,c_draw,c_away = f"@{ho:.2f}",(f"@{do_:.2f}" if do_ else ""),f"@{ao:.2f}"
                 else:
-                    prob_html = ""
-                    c_home = c_draw = c_away = ""
+                    prob_html = ""; c_home = c_draw = c_away = ""
 
                 t_h = ('<div class="team-blk">'
                        f'<div class="t-flag">{fl(home)}</div>'
@@ -380,8 +355,7 @@ with tab1:
                        + (f'<div class="t-cuota">{c_home}</div>' if c_home else '')
                        + '</div>')
                 t_c = ('<div class="center-blk">'
-                       f'<div class="mc-time">{hora}</div>'
-                       '<div class="mc-vs">VS</div>'
+                       f'<div class="mc-time">{hora}</div><div class="mc-vs">VS</div>'
                        + (f'<div class="mc-draw">{c_draw}</div>' if c_draw else '')
                        + '</div>')
                 t_a = ('<div class="team-blk">'
@@ -391,11 +365,10 @@ with tab1:
                        + '</div>')
                 st.markdown(
                     '<div class="mcard"><div class="teams-row">'
-                    + t_h + t_c + t_a
-                    + '</div>' + prob_html + '</div>',
+                    + t_h + t_c + t_a + '</div>' + prob_html + '</div>',
                     unsafe_allow_html=True)
                 st.markdown('<div class="mcard-footer">', unsafe_allow_html=True)
-                if st.checkbox(f"📌 Añadir al análisis — {tr(home)} vs {tr(away)}", key=p["id"]):
+                if st.checkbox(f"📌 Añadir — {tr(home)} vs {tr(away)}", key=p["id"]):
                     partidos_activos.append(p)
                 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -410,9 +383,9 @@ with tab1:
                 if "error" in res:
                     st.error(f"❌ Error IA: {res['error']}")
                 else:
-                    st.session_state.ultimo_analisis   = res
+                    st.session_state.ultimo_analisis    = res
                     st.session_state.partidos_analizados = " | ".join([f"{p['home_team']} vs {p['away_team']}" for p in partidos_activos])
-                    st.session_state.ticket_guardado   = False
+                    st.session_state.ticket_guardado    = False
 
         if "ultimo_analisis" in st.session_state:
             data = st.session_state.ultimo_analisis
@@ -456,82 +429,70 @@ with tab1:
                 st.success("✅ Boletos guardados en la Base de Datos.")
 
 # ───────────────────────────────────────────────────────────────
-# TAB 2 — PREDICCIONES (Dixon-Coles + Odds API + +EV)
+# TAB 2 — PREDICCIONES DIXON-COLES
 # ───────────────────────────────────────────────────────────────
 with tab2:
     comp_sel = st.selectbox("Competición", list(COMPETICIONES.keys()), key="comp_pred")
     comp_nombre, comp_season, comp_odds_key = COMPETICIONES[comp_sel]
-
     estado = modelo_mod.estado_modelo(comp_nombre, comp_season)
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Partidos en BD",    estado["partidos_en_bd"])
-    c2.metric("Finalizados",       estado["partidos_finalizados"])
-    c3.metric("Equipos calibrados",estado["n_equipos"])
+    c1,c2,c3 = st.columns(3)
+    c1.metric("Partidos en BD",  estado["partidos_en_bd"])
+    c2.metric("Finalizados",     estado["partidos_finalizados"])
+    c3.metric("Equipos",         estado["n_equipos"])
 
     if not estado["listo"]:
-        st.warning(f"⚠️ Se necesitan al menos 5 partidos finalizados para entrenar el modelo. Actualmente hay {estado['partidos_finalizados']}. Ve a ⚙️ Sistema para sincronizar datos.")
+        st.warning(f"⚠️ Se necesitan al menos 5 partidos finalizados. Actualmente: {estado['partidos_finalizados']}. Ve a ⚙️ Sistema y sincroniza los datos.")
     else:
         if estado["modelo_entrenado"]:
-            ventaja = estado['home_advantage']
-            st.success(f"✅ Modelo Dixon-Coles entrenado · {estado['n_partidos_usados']} partidos · Ventaja local: +{ventaja:.3f}")
+            st.success(f"✅ Modelo entrenado · {estado['n_partidos_usados']} partidos · Ventaja local: +{estado['home_advantage']:.3f}")
 
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-        col_btn1, col_btn2 = st.columns(2)
-        generar = col_btn1.button("🔮 Generar Predicciones")
-        ver_ranking = col_btn2.button("🏅 Ver Ranking de Equipos")
+        col_b1, col_b2 = st.columns(2)
+        generar     = col_b1.button("🔮 Generar Predicciones")
+        ver_ranking = col_b2.button("🏅 Ranking de Equipos")
 
         if ver_ranking:
             ranking = modelo_mod.ranking_equipos(comp_nombre, comp_season)
             if ranking:
-                st.markdown("**🏅 Ranking según el modelo**")
-                for i, eq in enumerate(ranking[:10], 1):
-                    col_r1, col_r2, col_r3, col_r4 = st.columns([1,3,1,1])
-                    col_r1.markdown(f"**#{i}**")
-                    col_r2.markdown(f"**{tr(eq['equipo'])}**")
-                    col_r3.metric("Ataque", eq["ataque"])
-                    col_r4.metric("Rating", eq["rating"])
+                st.markdown("**🏅 Top 10 según el modelo Dixon-Coles**")
+                for i,eq in enumerate(ranking[:10],1):
+                    ca,cb,cc,cd = st.columns([1,3,1,1])
+                    ca.markdown(f"**#{i}**")
+                    cb.markdown(f"**{tr(eq['equipo'])}**")
+                    cc.metric("Ataque",f"{eq['ataque']:+.3f}")
+                    cd.metric("Rating",f"{eq['rating']:+.3f}")
             else:
-                st.info("Sin datos suficientes para el ranking.")
+                st.info("Sin datos para el ranking.")
 
         if generar:
-            with st.spinner("🔮 Generando predicciones Dixon-Coles..."):
+            with st.spinner("🔮 Calculando predicciones Dixon-Coles..."):
                 odds_lista = obtener_odds_competicion(comp_odds_key)
                 proximos   = datos_mod.get_proximos_para_predecir(comp_nombre)
                 params     = modelo_mod.entrenar_modelo(comp_nombre, comp_season)
 
             if not params:
-                st.error("❌ No hay suficientes datos para entrenar el modelo.")
+                st.error("❌ No hay suficientes datos para el modelo.")
             elif not proximos:
-                st.info("ℹ️ No hay partidos próximos en la BD. Sincroniza primero desde ⚙️ Sistema.")
+                st.info("ℹ️ No hay partidos próximos en la BD. Sincroniza desde ⚙️ Sistema.")
             else:
-                st.markdown(f"<p style='color:#8A97B5;font-size:12px;font-weight:700;margin-bottom:14px;'>📋 {len(proximos)} próximos partidos · Predicciones del modelo</p>", unsafe_allow_html=True)
-
-                total_picks_ev = 0
+                st.markdown(f"<p style='color:#8A97B5;font-size:12px;font-weight:700;margin-bottom:14px;'>📋 {len(proximos)} próximos partidos</p>", unsafe_allow_html=True)
+                total_ev = 0
                 for partido in proximos[:8]:
-                    home = partido["home_team"]
-                    away = partido["away_team"]
+                    home = partido["home_team"]; away = partido["away_team"]
                     hora = fmt_hora(partido.get("fecha",""))
-
                     pred = modelo_mod.predecir_partido(home, away, params)
                     if not pred: continue
-
                     cuotas = emparejar_partido(home, away, odds_lista) if odds_lista else {}
                     picks  = modelo_mod.detectar_valor(pred, cuotas) if cuotas else []
-                    total_picks_ev += len(picks)
-
+                    total_ev += len(picks)
                     ph = int(pred["prob_home"]*100)
                     pd_ = int(pred["prob_draw"]*100)
                     pa = int(pred["prob_away"]*100)
-
                     picks_html = ""
                     for pk in picks[:3]:
-                        clase = "ev-badge" if pk["valor_esperado"] > 7 else "ev-badge-mod"
-                        picks_html += f'<span class="{clase}">🎯 {tr_pick(pk["seleccion"])} @{pk["cuota"]} · +{pk["valor_esperado"]:.1f}% EV · Kelly {pk["kelly_pct"]}%</span>'
-
-                    ev_section = f'<div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.07);">{picks_html}</div>' if picks_html else ""
-
+                        cls = "ev-badge" if pk["valor_esperado"]>7 else "ev-badge-mod"
+                        picks_html += f'<span class="{cls}">🎯 {tr_pick(pk["seleccion"])} @{pk["cuota"]} · +{pk["valor_esperado"]:.1f}% EV · Kelly {pk["kelly_pct"]}%</span>'
+                    ev_sec = (f'<div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.07);">{picks_html}</div>' if picks_html else "")
                     st.markdown(
                         '<div class="pred-card">'
                         '<div class="pred-teams">'
@@ -549,70 +510,63 @@ with tab2:
                         f'<span class="pct-d">{pd_}%</span>'
                         f'<span class="pct-a">{pa}%</span>'
                         '</div>'
-                        f'<div style="font-size:10px;color:#8A97B5;margin-top:6px;">⚽ Goles esperados: <b style="color:#EEF4FF;">{pred["lambda_home"]:.2f}</b> — <b style="color:#EEF4FF;">{pred["lambda_away"]:.2f}</b> · Marcador probable: <b style="color:#00C2FF;">{pred["marcador_probable"]}</b></div>'
-                        + ev_section
-                        + '</div>',
+                        f'<div style="font-size:10px;color:#8A97B5;margin-top:6px;">⚽ Goles esperados: <b style="color:#EEF4FF;">{pred["lambda_home"]:.2f}</b> — <b style="color:#EEF4FF;">{pred["lambda_away"]:.2f}</b> · Probable: <b style="color:#00C2FF;">{pred["marcador_probable"]}</b></div>'
+                        + ev_sec + '</div>',
                         unsafe_allow_html=True)
 
                     if picks:
-                        with st.expander(f"🔍 Análisis de contexto — {tr(home)} vs {tr(away)}"):
-                            if st.button(f"🤖 Analizar con IA", key=f"ctx_{partido['id']}"):
+                        with st.expander(f"🔍 Análisis IA — {tr(home)} vs {tr(away)}"):
+                            if st.button("🤖 Analizar contexto con Gemini", key=f"ctx_{partido['id']}"):
                                 with st.spinner("Buscando noticias actuales..."):
                                     ctx = gemini_mod.analizar_contexto_partido(home, away, comp_nombre, pred)
                                 if ctx:
                                     st.markdown(f"**Lesiones {tr(home)}:** {ctx.get('lesiones_home',{}).get('detalle','N/D')}")
                                     st.markdown(f"**Lesiones {tr(away)}:** {ctx.get('lesiones_away',{}).get('detalle','N/D')}")
-                                    st.markdown(f"**Forma local:** {ctx.get('forma_home',{}).get('ultimos_5','N/D')} — {ctx.get('forma_home',{}).get('detalle','')}")
-                                    st.markdown(f"**Forma visitante:** {ctx.get('forma_away',{}).get('ultimos_5','N/D')} — {ctx.get('forma_away',{}).get('detalle','')}")
+                                    st.markdown(f"**Forma local:** {ctx.get('forma_home',{}).get('ultimos_5','N/D')}")
+                                    st.markdown(f"**Forma visitante:** {ctx.get('forma_away',{}).get('ultimos_5','N/D')}")
                                     st.markdown(f"**Ajuste sugerido:** {ctx.get('ajuste_sugerido',{}).get('razon','Sin cambios')}")
-                                    st.markdown(f"**Resumen:** {ctx.get('resumen','')}")
+                                    st.info(ctx.get('resumen',''))
 
-                if total_picks_ev == 0 and cuotas:
-                    st.info("ℹ️ El modelo no detectó picks con valor esperado positivo en estos partidos. Las cuotas del mercado ya reflejan bien las probabilidades.")
-                elif not cuotas:
-                    st.info("ℹ️ No hay cuotas del mercado disponibles para detectar valor. Las probabilidades del modelo son correctas pero no se puede calcular +EV.")
+                if total_ev == 0:
+                    st.info("ℹ️ El modelo no detectó picks con +EV. El mercado refleja bien las probabilidades para estos partidos.")
 
 # ───────────────────────────────────────────────────────────────
-# TAB 3 — ESTADÍSTICAS (ROI + Hit Rate + Historial)
+# TAB 3 — ESTADÍSTICAS
 # ───────────────────────────────────────────────────────────────
 with tab3:
     comp_stats = st.selectbox("Competición", list(COMPETICIONES.keys()), key="comp_stats")
     comp_nombre_s = COMPETICIONES[comp_stats][0]
-
     stats = bd.get_estadisticas_modelo(comp_nombre_s)
-    color = "#00E676" if stats["hit_rate"] >= 55 else "#FFB700" if stats["hit_rate"] >= 45 else "#FF3B5C"
+    color = "#00E676" if stats["hit_rate"]>=55 else "#FFB700" if stats["hit_rate"]>=45 else "#FF3B5C"
+    roi_color = "#00E676" if stats["roi"]>=0 else "#FF3B5C"
 
     st.markdown(
         '<div class="dash-grid">'
         f'<div class="d-card"><div class="d-val" style="color:{color};">{stats["hit_rate"]}%</div><div class="d-lbl">Hit Rate</div></div>'
-        f'<div class="d-card"><div class="d-val" style="color:{"#00E676" if stats["roi"]>=0 else "#FF3B5C"};">{stats["roi"]:+.1f}%</div><div class="d-lbl">ROI</div></div>'
+        f'<div class="d-card"><div class="d-val" style="color:{roi_color};">{stats["roi"]:+.1f}%</div><div class="d-lbl">ROI</div></div>'
         f'<div class="d-card"><div class="d-val" style="color:#8B5CF6;">{stats["total"]}</div><div class="d-lbl">Total Picks</div></div>'
-        '</div>',
-        unsafe_allow_html=True)
+        '</div>', unsafe_allow_html=True)
 
-    c1, c2 = st.columns(2)
+    c1,c2 = st.columns(2)
     c1.metric("✅ Acertados", stats["acertados"])
     c2.metric("❌ Fallidos",  stats["fallidos"])
 
-    # Mejor mercado
     mejores = bd.get_mejor_mercado(comp_nombre_s)
     if mejores:
         st.markdown("<p style='color:#EEF4FF;font-weight:800;font-size:13px;margin-top:18px;margin-bottom:10px;'>📈 Rendimiento por Mercado</p>", unsafe_allow_html=True)
         for m in mejores:
-            roi_color = "#00E676" if m["roi"] >= 0 else "#FF3B5C"
+            rc = "#00E676" if m["roi"]>=0 else "#FF3B5C"
             st.markdown(
                 '<div class="hist-row">'
                 f'<div><div class="h-meta">{m["mercado"]}</div>'
                 f'<div class="h-txt">{m["total"]} picks · {m["hit_rate"]}% acierto</div></div>'
-                f'<span class="h-badge" style="background:{roi_color}20;color:{roi_color};border:1px solid {roi_color}40;">ROI {m["roi"]:+.1f}%</span>'
-                '</div>',
-                unsafe_allow_html=True)
+                f'<span class="h-badge" style="background:{rc}20;color:{rc};border:1px solid {rc}40;">ROI {m["roi"]:+.1f}%</span>'
+                '</div>', unsafe_allow_html=True)
 
-    # Historial de picks con valor
-    st.markdown("<p style='color:#EEF4FF;font-weight:800;font-size:13px;margin-top:18px;margin-bottom:10px;'>📋 Historial de Picks +EV</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#EEF4FF;font-weight:800;font-size:13px;margin-top:18px;margin-bottom:10px;'>📋 Historial Picks +EV</p>", unsafe_allow_html=True)
     historial_ev = bd.get_valores_por_competicion(comp_nombre_s, limit=20)
     if not historial_ev:
-        st.info("Sin historial de picks todavía. Genera predicciones en la pestaña 🔮.")
+        st.info("Sin historial de picks. Genera predicciones en 🔮.")
     else:
         for pick in historial_ev:
             estado = pick.get("resultado","pendiente")
@@ -622,16 +576,14 @@ with tab3:
                 f'<div><div class="h-meta">{tr_pick(pick.get("home_team",""))} vs {tr_pick(pick.get("away_team",""))}</div>'
                 f'<div class="h-txt">{pick.get("mercado","")} · {tr_pick(pick.get("seleccion",""))} @{pick.get("cuota",0):.2f} · EV {pick.get("valor_esperado",0)*100:+.1f}%</div></div>'
                 f'<span class="h-badge" style="background:{bg};color:#fff;">{estado}</span>'
-                '</div>',
-                unsafe_allow_html=True)
-            c1, c2, c3, _ = st.columns([1,1,1,3])
-            if c1.button("✅", key=f"ev_ok_{pick['id']}"): bd.actualizar_resultado_valor(pick["id"],"acertado"); st.rerun()
-            if c2.button("❌", key=f"ev_fa_{pick['id']}"): bd.actualizar_resultado_valor(pick["id"],"fallido");  st.rerun()
-            if c3.button("⏳", key=f"ev_pe_{pick['id']}"): bd.actualizar_resultado_valor(pick["id"],"pendiente");st.rerun()
+                '</div>', unsafe_allow_html=True)
+            c1,c2,c3,_ = st.columns([1,1,1,3])
+            if c1.button("✅",key=f"ev_ok_{pick['id']}"): bd.actualizar_resultado_valor(pick["id"],"acertado"); st.rerun()
+            if c2.button("❌",key=f"ev_fa_{pick['id']}"): bd.actualizar_resultado_valor(pick["id"],"fallido"); st.rerun()
+            if c3.button("⏳",key=f"ev_pe_{pick['id']}"): bd.actualizar_resultado_valor(pick["id"],"pendiente"); st.rerun()
 
-    # Historial de boletos IA
     st.markdown("<p style='color:#EEF4FF;font-weight:800;font-size:13px;margin-top:18px;margin-bottom:10px;'>🎟️ Historial Boletos IA</p>", unsafe_allow_html=True)
-    with st.spinner("Cargando historial..."):
+    with st.spinner("Cargando..."):
         auto_verificar_jornada()
         historial_ia = bd.cargar_historial_db()
 
@@ -640,17 +592,17 @@ with tab3:
     else:
         for t in historial_ia:
             data_t = json.loads(t["analisis_json"])
-            estrategias = data_t.get("estrategias",[])
+            ests   = data_t.get("estrategias",[])
             with st.expander(f"🎫 {t['fecha_gen']} · {t['liga']}"):
                 st.markdown(f"<div style='font-size:10px;color:#8A97B5;margin-bottom:10px;'><b>Partidos:</b> {tr_pick(t['partidos'])}</div>", unsafe_allow_html=True)
                 items = [
-                    ("res_estrella","⭐ Pick Base",   tr_pick(data_t.get("pick_estrella",{}).get("seleccion","N/D"))),
-                    ("res_mas_seguro","🛡️ Anti-Sorp.", tr_pick(data_t.get("pick_mas_seguro",{}).get("seleccion","N/D"))),
-                    ("res_segura","🟢 Segura",   f"@{estrategias[0].get('cuota_total','?')}" if len(estrategias)>0 else "N/D"),
-                    ("res_moderada","🟡 Moderada", f"@{estrategias[1].get('cuota_total','?')}" if len(estrategias)>1 else "N/D"),
-                    ("res_arriesgada","🔴 Arriesgada",f"@{estrategias[2].get('cuota_total','?')}" if len(estrategias)>2 else "N/D"),
+                    ("res_estrella",   "⭐ Pick Base",     tr_pick(data_t.get("pick_estrella",{}).get("seleccion","N/D"))),
+                    ("res_mas_seguro", "🛡️ Anti-Sorp.",    tr_pick(data_t.get("pick_mas_seguro",{}).get("seleccion","N/D"))),
+                    ("res_segura",     "🟢 Segura",    f"@{ests[0].get('cuota_total','?')}" if len(ests)>0 else "N/D"),
+                    ("res_moderada",   "🟡 Moderada",  f"@{ests[1].get('cuota_total','?')}" if len(ests)>1 else "N/D"),
+                    ("res_arriesgada", "🔴 Arriesgada",f"@{ests[2].get('cuota_total','?')}" if len(ests)>2 else "N/D"),
                 ]
-                for col_name, titulo, sel_txt in items:
+                for col_name,titulo,sel_txt in items:
                     estado = t.get(col_name,"pendiente")
                     bg = "#00E676" if estado=="acertado" else "#FF3B5C" if estado=="fallido" else "#4A5568"
                     st.markdown(
@@ -660,87 +612,80 @@ with tab3:
                         unsafe_allow_html=True)
                     c1,c2,c3,_ = st.columns([1,1,1,3])
                     if c1.button("✅",key=f"ia_ok_{t['id']}_{col_name}"): bd.actualizar_resultado_historial(t["id"],col_name,"acertado"); st.rerun()
-                    if c2.button("❌",key=f"ia_fa_{t['id']}_{col_name}"): bd.actualizar_resultado_historial(t["id"],col_name,"fallido");  st.rerun()
-                    if c3.button("⏳",key=f"ia_pe_{t['id']}_{col_name}"): bd.actualizar_resultado_historial(t["id"],col_name,"pendiente");st.rerun()
+                    if c2.button("❌",key=f"ia_fa_{t['id']}_{col_name}"): bd.actualizar_resultado_historial(t["id"],col_name,"fallido"); st.rerun()
+                    if c3.button("⏳",key=f"ia_pe_{t['id']}_{col_name}"): bd.actualizar_resultado_historial(t["id"],col_name,"pendiente"); st.rerun()
                 st.markdown("<hr style='border-color:rgba(255,255,255,0.05);margin:8px 0;'>",unsafe_allow_html=True)
                 if st.button("🗑️ Eliminar",key=f"ia_del_{t['id']}"): bd.eliminar_ticket_db(t["id"]); st.rerun()
 
 # ───────────────────────────────────────────────────────────────
-# TAB 4 — SISTEMA (sincronización, modelo, admin)
+# TAB 4 — SISTEMA
 # ───────────────────────────────────────────────────────────────
 with tab4:
     comp_sys = st.selectbox("Competición", list(COMPETICIONES.keys()), key="comp_sys")
-    comp_nombre_sys, comp_season_sys, comp_odds_sys = COMPETICIONES[comp_sys]
-
-    # Estado actual
+    comp_nombre_sys, comp_season_sys, _ = COMPETICIONES[comp_sys]
     estado_sys = modelo_mod.estado_modelo(comp_nombre_sys, comp_season_sys)
-    st.markdown('<div class="sys-card"><div class="sys-title">📡 Estado de Datos</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="sys-card"><div class="sys-title">📡 Estado Actual</div>', unsafe_allow_html=True)
     c1,c2,c3 = st.columns(3)
-    c1.metric("Total partidos",  estado_sys["partidos_en_bd"])
-    c2.metric("Finalizados",     estado_sys["partidos_finalizados"])
-    c3.metric("Por jugar",       estado_sys["partidos_pendientes"])
-    model_estado = "✅ Entrenado" if estado_sys["modelo_entrenado"] else "⏳ Sin datos suficientes"
-    st.markdown(f"<p style='font-size:12px;color:#8A97B5;margin-top:8px;'>Modelo: <b style='color:#EEF4FF;'>{model_estado}</b> · Equipos: <b style='color:#EEF4FF;'>{estado_sys['n_equipos']}</b> · Partidos usados: <b style='color:#EEF4FF;'>{estado_sys['n_partidos_usados']}</b></p>", unsafe_allow_html=True)
+    c1.metric("Total",      estado_sys["partidos_en_bd"])
+    c2.metric("Finalizados",estado_sys["partidos_finalizados"])
+    c3.metric("Pendientes", estado_sys["partidos_pendientes"])
+    model_ok = "✅ Entrenado" if estado_sys["modelo_entrenado"] else "⏳ Sin datos suficientes"
+    st.markdown(
+        f"<p style='font-size:12px;color:#8A97B5;margin-top:8px;'>"
+        f"Modelo: <b style='color:#EEF4FF;'>{model_ok}</b> · "
+        f"Equipos: <b style='color:#EEF4FF;'>{estado_sys['n_equipos']}</b> · "
+        f"Partidos usados: <b style='color:#EEF4FF;'>{estado_sys['n_partidos_usados']}</b></p>",
+        unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-    # Sincronización
-    st.markdown('<div class="sys-card"><div class="sys-title">🔄 Sincronización Football-Data.org</div>', unsafe_allow_html=True)
-    st.markdown("<p style='font-size:11px;color:#8A97B5;margin-bottom:10px;'>Usa 1 llamada de tu límite diario de 100.</p>", unsafe_allow_html=True)
-
-    col_s1, col_s2 = st.columns(2)
+    st.markdown('<div class="sys-card"><div class="sys-title">🔄 Sincronización · Football-Data.org (1 llamada)</div>', unsafe_allow_html=True)
+    col_s1,col_s2 = st.columns(2)
     with col_s1:
         if st.button("📥 Sincronizar todos los partidos"):
-            with st.spinner(f"Descargando partidos de {comp_nombre_sys}..."):
-                resultado = datos_mod.sincronizar_competicion(
-                    comp_nombre_sys,
-                    datos_mod.COMPETICIONES.get(comp_nombre_sys, ""),
-                    comp_season_sys
-                )
-            if resultado.get("ok"):
-                st.success(resultado["mensaje"])
-                modelo_mod.entrenar_modelo.clear()
-                st.rerun()
+            codigo = datos_mod.COMPETICIONES.get(comp_nombre_sys,"")
+            if not codigo:
+                st.error("Código de competición no encontrado.")
             else:
-                st.error(resultado.get("mensaje","Error desconocido"))
-
+                with st.spinner(f"Descargando {comp_nombre_sys}..."):
+                    resultado = datos_mod.sincronizar_competicion(comp_nombre_sys, codigo, comp_season_sys)
+                if resultado.get("ok"):
+                    st.success(resultado["mensaje"])
+                    modelo_mod.entrenar_modelo.clear()
+                    st.rerun()
+                else:
+                    st.error(resultado.get("mensaje","Error"))
     with col_s2:
         if st.button("🔄 Actualizar resultados"):
-            with st.spinner("Actualizando resultados del día..."):
-                resultado = datos_mod.actualizar_resultados(
-                    comp_nombre_sys,
-                    datos_mod.COMPETICIONES.get(comp_nombre_sys, ""),
-                    comp_season_sys
-                )
-            if resultado.get("ok"):
-                st.success(resultado["mensaje"])
-                modelo_mod.entrenar_modelo.clear()
-            else:
-                st.error(resultado.get("mensaje","Error"))
+            codigo = datos_mod.COMPETICIONES.get(comp_nombre_sys,"")
+            if codigo:
+                with st.spinner("Actualizando resultados..."):
+                    resultado = datos_mod.actualizar_resultados(comp_nombre_sys, codigo, comp_season_sys)
+                if resultado.get("ok"):
+                    st.success(resultado["mensaje"])
+                    modelo_mod.entrenar_modelo.clear()
+                else:
+                    st.error(resultado.get("mensaje","Error"))
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Modelo
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     st.markdown('<div class="sys-card"><div class="sys-title">🧠 Modelo Dixon-Coles</div>', unsafe_allow_html=True)
-    st.markdown("<p style='font-size:11px;color:#8A97B5;margin-bottom:10px;'>El modelo se reentrena automáticamente con cada sincronización. El caché dura 1 hora.</p>", unsafe_allow_html=True)
-    if st.button("♻️ Forzar reentrenamiento del modelo"):
+    st.markdown("<p style='font-size:11px;color:#8A97B5;margin-bottom:10px;'>El modelo se reentrena automáticamente. Caché de 1 hora.</p>", unsafe_allow_html=True)
+    if st.button("♻️ Forzar reentrenamiento"):
         modelo_mod.entrenar_modelo.clear()
-        with st.spinner("Reentrenando..."):
+        with st.spinner("Reentrenando modelo..."):
             params_new = modelo_mod.entrenar_modelo(comp_nombre_sys, comp_season_sys)
         if params_new:
-            st.success(f"✅ Modelo reentrenado con {params_new['n_partidos']} partidos. Convergió: {params_new['convergido']}")
+            st.success(f"✅ Reentrenado con {params_new['n_partidos']} partidos. Convergió: {params_new['convergido']}")
         else:
-            st.warning("⚠️ No hay suficientes partidos finalizados. Sincroniza primero.")
+            st.warning("⚠️ Sin partidos suficientes. Sincroniza primero.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Llamadas API
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     plan = datos_mod.plan_llamadas_diario()
     st.markdown(
-        '<div class="sys-card"><div class="sys-title">📊 Gestión de llamadas diarias</div>'
-        f'<p style="font-size:12px;color:#8A97B5;">Límite: <b style="color:#EEF4FF;">{plan["limite_diario"]}/día</b> · '
+        '<div class="sys-card"><div class="sys-title">📊 Gestión de Llamadas API</div>'
+        f'<p style="font-size:12px;color:#8A97B5;">Límite diario: <b style="color:#EEF4FF;">{plan["limite_diario"]}</b> · '
         f'Uso recomendado: <b style="color:#00C2FF;">{plan["llamadas_reservadas"]} llamadas</b> · '
-        f'Margen disponible: <b style="color:#00E676;">{plan["llamadas_disponibles_extras"]} libres</b></p>'
-        '</div>',
-        unsafe_allow_html=True)
+        f'Margen libre: <b style="color:#00E676;">{plan["llamadas_disponibles_extras"]}</b></p>'
+        '</div>', unsafe_allow_html=True)
