@@ -372,7 +372,7 @@ Responde SOLO con JSON válido (sin markdown, sin texto extra):
     try:
         client = genai.Client(api_key=api_gemini)
         resp   = client.models.generate_content(
-            model="gemini-3.1-flash-lite", contents=prompt,
+            model="gemini-2.0-flash-lite", contents=prompt,
             config=types.GenerateContentConfig(
                 max_output_tokens=4096, temperature=0.1,
                 response_mime_type="application/json"))
@@ -578,16 +578,20 @@ with tab2:
                 c3.metric("Elo", eq["elo"])
 
         if ver_pred_elo:
-            proximos = datos_mod.get_proximos_para_predecir(comp_nombre)
-            if not proximos:
-                st.warning("Sin partidos próximos en BD. Ve a ⚙️ Sistema → Sincronizar.")
+            # Usar Odds API para obtener partidos — NO requiere API-Sports
+            with st.spinner("Obteniendo partidos desde Odds API..."):
+                odds_lista = obtener_odds_competicion(comp_odds_key)
+
+            if not odds_lista:
+                st.warning("⚠️ No hay partidos disponibles en Odds API para esta competición.")
             else:
-                st.markdown(f"<p style='color:#8A97B5;font-size:12px;font-weight:700;margin-bottom:14px;'>📋 {len(proximos)} próximos · Predicciones Elo</p>", unsafe_allow_html=True)
-                for partido in proximos[:8]:
-                    home = partido["home_team"]; away = partido["away_team"]
-                    hora = fmt_hora(partido.get("fecha",""))
+                st.markdown(f"<p style='color:#8A97B5;font-size:12px;font-weight:700;margin-bottom:14px;'>📋 {len(odds_lista[:8])} próximos partidos · Predicciones Elo</p>", unsafe_allow_html=True)
+                for partido_odds in odds_lista[:8]:
+                    home = partido_odds.get("home_team","")
+                    away = partido_odds.get("away_team","")
+                    hora = fmt_hora(partido_odds.get("commence_time",""))
                     pred = elo_mod.calcular_probabilidades(home, away, ratings_elo)
-                    cuotas = emparejar_partido(home, away, odds_lista) if odds_lista else {}
+                    cuotas = extraer_cuotas_odds(partido_odds)
                     picks  = elo_mod.detectar_valor_elo(home, away, cuotas, ratings_elo) if cuotas else []
                     ph = int(pred["prob_home"]*100)
                     pd_ = int(pred["prob_draw"]*100)
@@ -614,7 +618,7 @@ with tab2:
                         f'<span class="pct-d">{pd_}%</span>'
                         f'<span class="pct-a">{pa}%</span>'
                         '</div>'
-                        f'<div style="font-size:10px;color:#8A97B5;margin-top:6px;">🎯 Goles esperados: <b style="color:#EEF4FF;">{pred["lambda_home"]:.2f}</b> — <b style="color:#EEF4FF;">{pred["lambda_away"]:.2f}</b> · Probable: <b style="color:#00C2FF;">{pred["marcador_probable"]}</b> · Elo: {pred["elo_home"]} vs {pred["elo_away"]}</div>'
+                        f'<div style="font-size:10px;color:#8A97B5;margin-top:6px;">⚽ Goles esperados: <b style="color:#EEF4FF;">{pred["lambda_home"]:.2f}</b> — <b style="color:#EEF4FF;">{pred["lambda_away"]:.2f}</b> · Probable: <b style="color:#00C2FF;">{pred["marcador_probable"]}</b> · Elo: {pred["elo_home"]} vs {pred["elo_away"]}</div>'
                         + ev_sec + '</div>',
                         unsafe_allow_html=True)
 
@@ -823,7 +827,11 @@ with tab4:
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    st.markdown('<div class="sys-card"><div class="sys-title">🔄 Sincronización · Football-Data.org (1 llamada)</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sys-card">'
+        '<div class="sys-title">🔄 Sincronización · API-Sports</div>'
+        '<p style="font-size:11px;color:#FFB700;margin-bottom:10px;">⚠️ El plan gratuito solo permite temporadas 2022-2024. El Mundial 2026 activo requiere plan de pago (~$10 USD/mes). <b style="color:#00C2FF;">Mientras tanto usa el sistema Elo en 🔮 Predicciones — funciona sin esta sincronización.</b></p>',
+        unsafe_allow_html=True)
     col_s1,col_s2 = st.columns(2)
     with col_s1:
         if st.button("📥 Sincronizar todos los partidos"):
@@ -854,7 +862,7 @@ with tab4:
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     st.markdown('<div class="sys-card"><div class="sys-title">🧠 Modelo Dixon-Coles</div>', unsafe_allow_html=True)
-    st.markdown("<p style='font-size:11px;color:#8A97B5;margin-bottom:10px;'>El modelo se reentrena automáticamente. Caché de 1 hora.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:11px;color:#8A97B5;margin-bottom:10px;'>Requiere datos históricos sincronizados. Mientras tanto el sistema Elo en 🔮 cubre las predicciones.</p>", unsafe_allow_html=True)
     if st.button("♻️ Forzar reentrenamiento"):
         modelo_mod.entrenar_modelo.clear()
         with st.spinner("Reentrenando modelo..."):
@@ -862,7 +870,7 @@ with tab4:
         if params_new:
             st.success(f"✅ Reentrenado con {params_new['n_partidos']} partidos. Convergió: {params_new['convergido']}")
         else:
-            st.warning("⚠️ Sin partidos suficientes. Sincroniza primero.")
+            st.warning("⚠️ Sin partidos suficientes. Activa la API de datos para sincronizar.")
     st.markdown('</div>', unsafe_allow_html=True)
 
     plan = datos_mod.plan_llamadas_diario()
