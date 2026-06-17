@@ -829,35 +829,49 @@ with tab4:
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     st.markdown(
         '<div class="sys-card">'
-        '<div class="sys-title">🔄 Sincronización · API-Sports</div>'
-        '<p style="font-size:11px;color:#FFB700;margin-bottom:10px;">⚠️ El plan gratuito solo permite temporadas 2022-2024. El Mundial 2026 activo requiere plan de pago (~$10 USD/mes). <b style="color:#00C2FF;">Mientras tanto usa el sistema Elo en 🔮 Predicciones — funciona sin esta sincronización.</b></p>',
+        '<div class="sys-title">🔄 Sincronización · API-Sports</div>',
         unsafe_allow_html=True)
-    col_s1,col_s2 = st.columns(2)
-    with col_s1:
-        if st.button("📥 Sincronizar todos los partidos"):
-            codigo = datos_mod.COMPETICIONES.get(comp_nombre_sys,"")
-            if not codigo:
-                st.error("Código de competición no encontrado.")
-            else:
-                with st.spinner(f"Descargando {comp_nombre_sys}..."):
-                    resultado = datos_mod.sincronizar_competicion(comp_nombre_sys, codigo, comp_season_sys)
-                if resultado.get("ok"):
-                    st.success(resultado["mensaje"])
-                    modelo_mod.entrenar_modelo.clear()
-                    st.rerun()
+
+    # Verificar si es una temporada con restricción del plan gratuito
+    es_mundial_2026 = (comp_nombre_sys == "FIFA World Cup" and comp_season_sys == "2026")
+
+    if es_mundial_2026:
+        st.markdown(
+            '<div style="background:rgba(255,183,0,.08);border:1px solid rgba(255,183,0,.25);'
+            'border-radius:10px;padding:14px;margin-bottom:8px;">'
+            '<p style="font-size:12px;color:#FFB700;font-weight:700;margin-bottom:6px;">⚠️ Plan gratuito no incluye el Mundial 2026 activo</p>'
+            '<p style="font-size:11px;color:#8A97B5;margin:0;">El sistema <b style="color:#00C2FF;">Elo</b> en la pestaña 🔮 ya genera predicciones y detecta valor (+EV) sin necesitar esta sincronización. Úsalo directamente.</p>'
+            '<p style="font-size:11px;color:#8A97B5;margin-top:6px;">Para activar Dixon-Coles necesitarías plan de pago de API-Sports (~$10 USD/mes).</p>'
+            '</div>',
+            unsafe_allow_html=True)
+    else:
+        col_s1,col_s2 = st.columns(2)
+        with col_s1:
+            if st.button("📥 Sincronizar todos los partidos"):
+                codigo = datos_mod.COMPETICIONES.get(comp_nombre_sys,"")
+                if not codigo:
+                    st.error("Código de competición no encontrado.")
                 else:
-                    st.error(resultado.get("mensaje","Error"))
-    with col_s2:
-        if st.button("🔄 Actualizar resultados"):
-            codigo = datos_mod.COMPETICIONES.get(comp_nombre_sys,"")
-            if codigo:
-                with st.spinner("Actualizando resultados..."):
-                    resultado = datos_mod.actualizar_resultados(comp_nombre_sys, codigo, comp_season_sys)
-                if resultado.get("ok"):
-                    st.success(resultado["mensaje"])
-                    modelo_mod.entrenar_modelo.clear()
-                else:
-                    st.error(resultado.get("mensaje","Error"))
+                    with st.spinner(f"Descargando {comp_nombre_sys}..."):
+                        resultado = datos_mod.sincronizar_competicion(comp_nombre_sys, codigo, comp_season_sys)
+                    if resultado.get("ok"):
+                        st.success(resultado["mensaje"])
+                        modelo_mod.entrenar_modelo.clear()
+                        st.rerun()
+                    else:
+                        st.error(resultado.get("mensaje","Error"))
+        with col_s2:
+            if st.button("🔄 Actualizar resultados"):
+                codigo = datos_mod.COMPETICIONES.get(comp_nombre_sys,"")
+                if codigo:
+                    with st.spinner("Actualizando resultados..."):
+                        resultado = datos_mod.actualizar_resultados(comp_nombre_sys, codigo, comp_season_sys)
+                    if resultado.get("ok"):
+                        st.success(resultado["mensaje"])
+                        modelo_mod.entrenar_modelo.clear()
+                    else:
+                        st.error(resultado.get("mensaje","Error"))
+
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
