@@ -373,7 +373,7 @@ Responde SOLO con JSON válido (sin markdown, sin texto extra):
     try:
         client = genai.Client(api_key=api_gemini)
         resp   = client.models.generate_content(
-            model="gemini-3.1-flash-lite", contents=prompt,
+            model="gemini-2.0-flash-lite", contents=prompt,
             config=types.GenerateContentConfig(
                 max_output_tokens=4096, temperature=0.1,
                 response_mime_type="application/json"))
@@ -769,13 +769,25 @@ with tab3:
     col_v1, col_v2 = st.columns(2)
     with col_v1:
         if st.button("🔄 Verificar resultados ahora"):
-            with st.spinner("Verificando picks pendientes..."):
+            with st.spinner("Buscando resultados..."):
                 resumen = ver_mod.verificar_todo(api_odds)
             if resumen["total_actualizados"] > 0:
-                st.success(f"✅ {resumen['total_actualizados']} picks actualizados — {resumen['historial_actualizados']} en boletos, {resumen['ev_actualizados']} en +EV.")
+                st.success(f"✅ {resumen['total_actualizados']} picks actualizados.")
                 st.rerun()
             else:
-                st.info("ℹ️ No hay nuevos resultados disponibles todavía.")
+                st.info("ℹ️ Sin nuevos resultados que actualizar.")
+
+    with col_v2:
+        if st.button("🔍 Ver diagnóstico"):
+            with st.spinner("Consultando Odds API..."):
+                diag = ver_mod.diagnostico_scores(api_odds)
+            st.markdown(f"**Partidos con score disponible:** {diag['scores_disponibles']}")
+            st.markdown(f"**Picks pendientes en historial:** {diag['picks_pendientes_historial']}")
+            if diag["partidos"]:
+                for p in diag["partidos"]:
+                    st.markdown(f"• {p}")
+            else:
+                st.warning("⚠️ Odds API no devolvió scores. Puede que los scores no estén habilitados en tu plan o los partidos son muy recientes.")
 
     with st.spinner("Cargando..."):
         auto_verificar_jornada()
