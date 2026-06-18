@@ -770,24 +770,38 @@ with tab3:
     with col_v1:
         if st.button("🔄 Verificar resultados ahora"):
             with st.spinner("Buscando resultados..."):
-                resumen = ver_mod.verificar_todo(api_odds)
-            if resumen["total_actualizados"] > 0:
-                st.success(f"✅ {resumen['total_actualizados']} picks actualizados.")
-                st.rerun()
-            else:
-                st.info("ℹ️ Sin nuevos resultados que actualizar.")
+                try:
+                    resumen = ver_mod.verificar_todo(api_odds)
+                    if resumen["total_actualizados"] > 0:
+                        st.success(f"✅ {resumen['total_actualizados']} picks actualizados.")
+                        st.rerun()
+                    else:
+                        st.info("ℹ️ Sin nuevos resultados que actualizar.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
     with col_v2:
         if st.button("🔍 Ver diagnóstico"):
             with st.spinner("Consultando Odds API..."):
-                diag = ver_mod.diagnostico_scores(api_odds)
-            st.markdown(f"**Partidos con score disponible:** {diag['scores_disponibles']}")
-            st.markdown(f"**Picks pendientes en historial:** {diag['picks_pendientes_historial']}")
-            if diag["partidos"]:
-                for p in diag["partidos"]:
-                    st.markdown(f"• {p}")
-            else:
-                st.warning("⚠️ Odds API no devolvió scores. Puede que los scores no estén habilitados en tu plan o los partidos son muy recientes.")
+                try:
+                    r_diag = requests.get(
+                        "https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/scores/",
+                        params={"apiKey": api_odds, "daysFrom": 10},
+                        timeout=15,
+                    )
+                    if r_diag.status_code == 200:
+                        completados = [m for m in r_diag.json() if m.get("completed")]
+                        st.markdown(f"**Partidos con score:** {len(completados)}")
+                        for m in completados[:8]:
+                            scores = {s["name"]: s["score"] for s in m.get("scores", [])}
+                            home = m.get("home_team",""); away = m.get("away_team","")
+                            st.markdown(f"• {tr(home)} {scores.get(home,'?')} — {scores.get(away,'?')} {tr(away)}")
+                        if not completados:
+                            st.warning("⚠️ No hay partidos completados en la Odds API (últimos 10 días).")
+                    else:
+                        st.error(f"❌ Error Odds API: {r_diag.status_code} — {r_diag.text[:100]}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
     with st.spinner("Cargando..."):
         auto_verificar_jornada()
