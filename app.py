@@ -19,6 +19,7 @@ import datos as datos_mod
 import modelo as modelo_mod
 import gemini as gemini_mod
 import elo as elo_mod
+import verificador as ver_mod
 
 try:
     from zoneinfo import ZoneInfo
@@ -391,20 +392,14 @@ Responde SOLO con JSON válido (sin markdown, sin texto extra):
         return {"error": str(e)}
 
 def auto_verificar_jornada():
+    """
+    Verificación automática de picks pendientes.
+    Usa lógica directa en código — no depende de Gemini.
+    """
     try:
-        pendientes = bd.get_client().table("historial").select("*").or_(
-            "res_estrella.eq.pendiente,res_mas_seguro.eq.pendiente,res_segura.eq.pendiente,res_moderada.eq.pendiente,res_arriesgada.eq.pendiente"
-        ).execute().data
-        if not pendientes: return
-        r = requests.get(f"https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/scores/?apiKey={api_odds}&daysFrom=3", timeout=10)
-        if r.status_code != 200: return
-        picks_pend = bd.get_valores_pendientes("FIFA World Cup")
-        if picks_pend:
-            resultados = gemini_mod.verificar_picks_pendientes(picks_pend)
-            for r2 in resultados:
-                if r2.get("pick_resultado") in ("acertado","fallido"):
-                    bd.actualizar_resultado_valor(r2["id"], r2["pick_resultado"])
-    except: pass
+        ver_mod.verificar_todo(api_odds)
+    except Exception as e:
+        print(f"[app] Error auto_verificar: {e}")
 
 # ═══════════════════════════════════════════════════════════════
 # TABS
@@ -770,6 +765,18 @@ with tab3:
             if c3.button("⏳",key=f"ev_pe_{pick['id']}"): bd.actualizar_resultado_valor(pick["id"],"pendiente"); st.rerun()
 
     st.markdown("<p style='color:#EEF4FF;font-weight:800;font-size:13px;margin-top:18px;margin-bottom:10px;'>🎟️ Historial Boletos IA</p>", unsafe_allow_html=True)
+
+    col_v1, col_v2 = st.columns(2)
+    with col_v1:
+        if st.button("🔄 Verificar resultados ahora"):
+            with st.spinner("Verificando picks pendientes..."):
+                resumen = ver_mod.verificar_todo(api_odds)
+            if resumen["total_actualizados"] > 0:
+                st.success(f"✅ {resumen['total_actualizados']} picks actualizados — {resumen['historial_actualizados']} en boletos, {resumen['ev_actualizados']} en +EV.")
+                st.rerun()
+            else:
+                st.info("ℹ️ No hay nuevos resultados disponibles todavía.")
+
     with st.spinner("Cargando..."):
         auto_verificar_jornada()
         historial_ia = bd.cargar_historial_db()
