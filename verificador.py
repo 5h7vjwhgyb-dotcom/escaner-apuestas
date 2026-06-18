@@ -164,10 +164,11 @@ def obtener_scores_completados(api_odds: str, sport: str = "soccer_fifa_world_cu
     try:
         r = requests.get(
             f"https://api.the-odds-api.com/v4/sports/{sport}/scores/",
-            params={"apiKey": api_odds, "daysFrom": 5},
-            timeout=10,
+            params={"apiKey": api_odds, "daysFrom": 10},
+            timeout=15,
         )
         if r.status_code != 200:
+            print(f"[verificador] Scores API error: {r.status_code} — {r.text[:100]}")
             return []
 
         completados = []
@@ -179,20 +180,45 @@ def obtener_scores_completados(api_odds: str, sport: str = "soccer_fifa_world_cu
                 continue
             home = m.get("home_team", "")
             away = m.get("away_team", "")
-            # Determinar cuál score es del local y cuál del visitante
-            s_dict = {s["name"]: int(s["score"]) for s in scores if s.get("name")}
-            hg = s_dict.get(home, 0)
-            ag = s_dict.get(away, 0)
+            s_dict = {}
+            for s in scores:
+                if s.get("name") and s.get("score") is not None:
+                    try: s_dict[s["name"]] = int(s["score"])
+                    except: pass
+            if home not in s_dict or away not in s_dict:
+                continue
             completados.append({
                 "home_team":  home,
                 "away_team":  away,
-                "home_score": hg,
-                "away_score": ag,
+                "home_score": s_dict[home],
+                "away_score": s_dict[away],
                 "match_str":  f"{tr(home)} vs {tr(away)}",
             })
         return completados
-    except:
+    except Exception as e:
+        print(f"[verificador] Error obtener_scores: {e}")
         return []
+
+def diagnostico_scores(api_odds: str) -> Dict:
+    """
+    Retorna diagnóstico de qué scores están disponibles.
+    Útil para debugging desde la UI.
+    """
+    scores = obtener_scores_completados(api_odds)
+    pendientes_hist = 0
+    try:
+        p = bd.get_client().table("historial").select("id").or_(
+            "res_estrella.eq.pendiente,res_mas_seguro.eq.pendiente,"
+            "res_segura.eq.pendiente,res_moderada.eq.pendiente,res_arriesgada.eq.pendiente"
+        ).execute().data
+        pendientes_hist = len(p)
+    except: pass
+
+    return {
+        "scores_disponibles": len(scores),
+        "partidos": [f"{s['match_str']} ({s['home_score']}-{s['away_score']})" for s in scores],
+        "picks_pendientes_historial": pendientes_hist,
+    }
 
 # ═══════════════════════════════════════════════════════════════
 # VERIFICACIÓN DE HISTORIAL (tabla historial)
